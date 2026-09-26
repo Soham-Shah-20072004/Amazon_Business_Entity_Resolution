@@ -7,8 +7,9 @@ Two ideas make it tractable:
   2. No blocker compares all pairs; each looks at a small neighbourhood per S1:
        ann_<view>  approximate nearest neighbours (FAISS IVF) on d-dim vectors
                    = char n-gram TF-IDF compressed by truncated SVD ("LSA").
-                   views: name, addr, skel (sound skeleton of name + address,
-                   bridges Latin <-> transliterated Devanagari/Gujarati)
+                   views: full (name + address), addr, skel (sound skeleton
+                   of name + address, bridges Latin <-> transliterated
+                   Devanagari/Gujarati); name-only is available but weak
        rare        shared rare tokens: an inverted index written as a sparse
                    product, IDF-weighted, only tokens seen in <= rare_max_df
                    pool records of that country/source
@@ -43,7 +44,7 @@ HASH_BITS = 24
 
 @dataclass
 class RetrievalConfig:
-    views: tuple[str, ...] = ("name", "addr", "skel")
+    views: tuple[str, ...] = ("full", "addr", "skel")
     k_ann: int = 15            # neighbours per S1, per view, per target source
     k_rare: int = 15           # rare-token candidates per S1, per target source
     rare_max_df: int = 100     # "rare" = appears in <= this many pool records
@@ -67,13 +68,15 @@ def view_text(rec: pd.DataFrame, view: str) -> pd.Series:
         return rec["name_canon"]
     if view == "addr":
         return rec["addr_canon"]
+    if view == "full":
+        return rec["name_canon"] + " | " + rec["addr_canon"]
     if view == "skel":
         return rec["name_skel"] + " | " + rec["addr_skel"]
     raise ValueError(view)
 
 
 def _vectorizer(view: str) -> TfidfVectorizer:
-    ngram = (3, 4) if view == "addr" else (2, 4)
+    ngram = (3, 4) if view in ("addr", "full") else (2, 4)
     return TfidfVectorizer(analyzer="char_wb", ngram_range=ngram, min_df=3,
                            max_features=1 << 18, sublinear_tf=True, dtype=np.float32)
 
@@ -161,51 +164,57 @@ def f32(Z: np.ndarray, rows: np.ndarray) -> np.ndarray:
     return np.ascontiguousarray(Z[rows], dtype=np.float32)
 
 
-def ann_search(Zq: np.ndarray, Zp: np.ndarray, k: int, nprobe: int, seed: int):
-    n, d = Zp.shape
-    k = min(k, n)
-    if n <= 20_000:
-        index = faiss.IndexFlatIP(d)
-    else:
-        nlist = int(max(16, min(4 * math.sqrt(n), n / 40)))
-        index = faiss.IndexIVFFlat(faiss.IndexFlatIP(d), d, nlist, faiss.METRIC_INNER_PRODUCT)
-        index.cp.niter = 10                   # k-means iterations for the cell centroids
-        rng = np.random.default_rng(seed)
-        index.train(Zp[np.sort(rng.choice(n, min(n, nlist * 40), replace=False))])
-        index.nprobe = nprobe
-    index.add(Zp)
-    return index.search(Zq, k)
-
-
 # ---------------------------------------------------------------- rare tokens
 
-def rare_analyzer(doc: str) -> list[str]:
-    name, addr, post = doc.split("\t")
-    toks = [f"n:{t}" for t in set(name.split()) if len(t) >= 3 and not t.isdigit()
+def name_analyzer(doc: str) -> list[str]:
+    return [f"n:{t}" for t in set(doc.split()) if len(t) >= 3 and not t.isdigit()
             and t not in LEGAL_TOKENS]
-    toks += [f"a:{t}" for t in set(addr.split()) if len(t) >= 3 and not t.isdigit()]
-    toks += [f"p:{t}" for t in post.split()]
-    return toks
 
 
-def hashed_tokens(rec: pd.DataFrame, rows: np.ndarray, workers: int) -> sp.csr_matrix:
-    """Binary token matrix over all records (rows outside `rows` left empty).
+def addr_analyzer(doc: str) -> list[str]:
+    addr, post = doc.split("\t")
+    toks = [f"a:{t}" for t in set(addr.split()) if len(t) >= 3 and not t.isdigit()]
+    return toks + [f"p:{t}" for t in post.split()]
 
-    Tokens are hashed into 2^24 columns (no vocabulary to build or ship to
-    workers); the rare collisions only perturb blocking scores slightly."""
-    if np.any(np.diff(rows) <= 0):
-        raise ValueError("rows must be strictly increasing")
-    hv = HashingVectorizer(analyzer=rare_analyzer, n_features=1 << HASH_BITS, alternate_sign=False,
-                           norm=None, binary=True, dtype=np.float32)
-    parts = [m for _, m in imap_ranges(_hash_range, len(rows), 100_000, workers, hv=hv, rows=rows,
-                                       name=rec["name_core"], addr=rec["addr_canon"],
-                                       post=rec["addr_post"])]
-    H = sp.vstack(parts).tocsr()
-    del parts
-    counts = np.zeros(len(rec), np.int64)
+
+def _hasher(analyzer) -> HashingVectorizer:
+    return HashingVectorizer(analyzer=analyzer, n_features=1 << HASH_BITS, alternate_sign=False,
+                             norm=None, binary=True, dtype=np.float32)
+
+
+def _hash_range(r):
+    lo, hi = r
+    rows = _G["rows"][lo:hi]
+    names = _G["name"].iloc[rows].tolist()
+    docs = [f"{a}\t{b}" for a, b in zip(_G["addr"].iloc[rows].tolist(), _G["post"].iloc[rows].tolist())]
+    return _hasher(name_analyzer).transform(names), _hasher(addr_analyzer).transform(docs)
+
+
+def _scatter_rows(H: sp.csr_matrix, rows: np.ndarray, n: int) -> sp.csr_matrix:
+    counts = np.zeros(n, np.int64)
     counts[rows] = np.diff(H.indptr)
     indptr = np.concatenate([[0], np.cumsum(counts)])
-    return sp.csr_matrix((H.data, H.indices, indptr), shape=(len(rec), H.shape[1]))
+    return sp.csr_matrix((H.data, H.indices, indptr), shape=(n, H.shape[1]))
+
+
+def hashed_tokens(rec: pd.DataFrame, rows: np.ndarray, workers: int):
+    """(Hn, Ha): binary name-token and address-token matrices over all records
+    (rows outside `rows` left empty). Tokens are hashed into 2^24 columns: no
+    vocabulary to build or ship to workers; rare collisions only nudge scores."""
+    if np.any(np.diff(rows) <= 0):
+        raise ValueError("rows must be strictly increasing")
+    parts = [m for _, m in imap_ranges(_hash_range, len(rows), 100_000, workers, rows=rows,
+                                       name=rec["name_core"], addr=rec["addr_canon"],
+                                       post=rec["addr_post"])]
+    Hn = _scatter_rows(sp.vstack([a for a, _ in parts]).tocsr(), rows, len(rec))
+    Ha = _scatter_rows(sp.vstack([b for _, b in parts]).tocsr(), rows, len(rec))
+    return Hn, Ha
+
+
+def idf_weights(H: sp.csr_matrix) -> np.ndarray:
+    df = np.bincount(H.indices, minlength=H.shape[1])
+    n = max(1, int((np.diff(H.indptr) > 0).sum()))
+    return (np.log((n + 1) / (df + 1)) + 1.0).astype(np.float32)
 
 
 def rare_weights(P: sp.csr_matrix, max_df: int) -> np.ndarray:
@@ -264,59 +273,120 @@ def rowwise_dense_dot(Z: np.ndarray, ii, jj, chunk: int = 2_000_000) -> np.ndarr
 
 # ---------------------------------------------------------------- driver
 
-def generate_candidates(split: Split, cfg: RetrievalConfig, log=print) -> pd.DataFrame:
+@dataclass
+class Resources:
+    """Everything built once per split and reused for every batch of queries."""
+    Z: dict                   # view -> (n_rec, dim) float16 memmap
+    Hn: sp.csr_matrix         # name tokens
+    Ha: sp.csr_matrix         # address tokens
+    H: sp.csr_matrix          # Hn + Ha (rare-token blocker)
+    idf_name: np.ndarray
+    idf_addr: np.ndarray
+    rare_w: dict              # (country, source) -> IDF weights of rare pool tokens
+    src: np.ndarray
+    country: np.ndarray
+    all_s1: np.ndarray        # every S1 row of the query countries (reverse check)
+
+
+def build_resources(split: Split, cfg: RetrievalConfig, log=print) -> Resources:
     rec = split.rec
-    n = len(rec)
     faiss.omp_set_num_threads(cfg.workers)
     src = rec["source"].to_numpy()
     country = rec["country_code"].to_numpy()
     q_countries = np.unique(country[split.query])
-    pool_mask = (src != 1) & np.isin(country, q_countries)
-    active = np.union1d(split.query, np.flatnonzero(pool_mask))
-    log(f"  queries {len(split.query):,} S1 | pool {pool_mask.sum():,} S2/S3 | "
-        f"countries {[split.countries[c] for c in q_countries]}")
-
-    found: dict[str, list] = {b: [] for b in cfg.blockers}
-    t0 = time.time()
+    in_c = np.isin(country, q_countries)
+    all_s1 = np.flatnonzero((src == 1) & in_c)
+    active = np.flatnonzero(in_c)          # every S1 (reverse check) + every S2/S3 of those countries
+    log(f"  queries {len(split.query):,} S1 | all S1 {len(all_s1):,} | pool {int(((src != 1) & in_c).sum()):,} "
+        f"S2/S3 | countries {[split.countries[c] for c in q_countries]}")
     Z = {v: embed_view(rec, active, v, cfg, split.name, log) for v in cfg.views}
     t = time.time()
-    H = hashed_tokens(rec, active, cfg.workers)
-    log(f"    rare-token index: {H.nnz:,} tokens in {time.time() - t:.0f}s")
-    rare_w: dict = {}
-
+    Hn, Ha = hashed_tokens(rec, active, cfg.workers)
+    H = (Hn + Ha).tocsr()
+    H.data[:] = 1.0
+    rare_w = {}
     for c in q_countries:
-        q = split.query[country[split.query] == c]
         for tgt in (2, 3):
             p = np.flatnonzero((src == tgt) & (country == c))
-            if len(p) == 0 or len(q) == 0:
+            if len(p):
+                rare_w[(int(c), tgt)] = rare_weights(H[p], cfg.rare_max_df)
+    log(f"    token index: {Hn.nnz:,} name + {Ha.nnz:,} address tokens in {time.time() - t:.0f}s")
+    return Resources(Z, Hn, Ha, H, idf_weights(Hn), idf_weights(Ha), rare_w, src, country, all_s1)
+
+
+def search(split: Split, res: Resources, cfg: RetrievalConfig, queries: np.ndarray,
+           log=print, chunk: int = 200_000) -> dict:
+    """blocker -> (i, j) int32 arrays for all `queries` (one index per country/source/view)."""
+    src, country = res.src, res.country
+    found: dict[str, list] = {b: [] for b in cfg.blockers}
+    for c in np.unique(country[queries]):
+        q = queries[country[queries] == c]
+        for tgt in (2, 3):
+            p = np.flatnonzero((src == tgt) & (country == c))
+            if len(p) == 0:
                 continue
             t = time.time()
             for v in cfg.views:
-                D, I = ann_search(f32(Z[v], q), f32(Z[v], p), cfg.k_ann, cfg.nprobe, cfg.seed)
-                ok = (I >= 0) & (D > 0)
-                found[f"ann_{v}"].append((np.repeat(q, I.shape[1])[ok.ravel()], p[I[ok]]))
-            w = rare_weights(H[p], cfg.rare_max_df)
-            rare_w[(c, tgt)] = (p, w)
-            qi, pj, _ = rare_search(H[q], H[p], w, cfg.k_rare)
-            found["rare"].append((q[qi], p[pj]))
+                index = ann_index(f32(res.Z[v], p), cfg.nprobe, cfg.seed)
+                k = min(cfg.k_ann, len(p))
+                for s in range(0, len(q), chunk):
+                    qs = q[s:s + chunk]
+                    D, I = index.search(f32(res.Z[v], qs), k)
+                    ok = (I >= 0) & (D > 0)
+                    found[f"ann_{v}"].append((np.repeat(qs, k)[ok.ravel()].astype(np.int32),
+                                              p[I[ok]].astype(np.int32)))
+                del index
+            w = res.rare_w[(int(c), tgt)]
+            qi, pj, _ = rare_search(res.H[q], res.H[p], w, cfg.k_rare)
+            found["rare"].append((q[qi].astype(np.int32), p[pj].astype(np.int32)))
             log(f"    {split.countries[c]} -> S{tgt}: {len(q):,} x {len(p):,} searched "
                 f"in {time.time() - t:.0f}s")
+    found["exact"].append(exact_blocks(split, res, cfg, queries))
+    return {b: (np.concatenate([a for a, _ in v]) if v else np.empty(0, np.int32),
+                np.concatenate([b_ for _, b_ in v]) if v else np.empty(0, np.int32))
+            for b, v in found.items()}
 
-    # exact core-name blocks (within country, skip generic names), on integer keys
+
+def ann_index(Zp: np.ndarray, nprobe: int, seed: int):
+    n, d = Zp.shape
+    if n <= 20_000:
+        index = faiss.IndexFlatIP(d)
+    else:
+        nlist = int(max(16, min(2 * math.sqrt(n), n / 40)))   # fewer cells = faster build
+        index = faiss.IndexIVFFlat(faiss.IndexFlatIP(d), d, nlist, faiss.METRIC_INNER_PRODUCT)
+        index.cp.niter = 10
+        rng = np.random.default_rng(seed)
+        index.train(Zp[np.sort(rng.choice(n, min(n, nlist * 40), replace=False))])
+        index.nprobe = nprobe
+    index.add(Zp)
+    return index
+
+
+def exact_blocks(split: Split, res: Resources, cfg: RetrievalConfig, queries: np.ndarray):
+    """Identical core name within country; generic names (big blocks) skipped."""
+    rec = split.rec
     name_code, _ = pd.factorize(rec["name_core"])
     has_name = rec["name_core"].str.len().to_numpy(dtype=np.int64, na_value=0) > 0
-    key = country.astype(np.int64) * (int(name_code.max()) + 2) + name_code
-    pool_rows = np.flatnonzero(pool_mask & has_name)
-    uk, inv, cnt = np.unique(key[pool_rows], return_inverse=True, return_counts=True)
+    key = res.country.astype(np.int64) * (int(name_code.max()) + 2) + name_code
+    pool_rows = np.flatnonzero((res.src != 1) & has_name & np.isin(res.country, np.unique(res.country[queries])))
+    _, inv, cnt = np.unique(key[pool_rows], return_inverse=True, return_counts=True)
     pool_df = pd.DataFrame({"key": key[pool_rows], "j": pool_rows})[cnt[inv] <= cfg.exact_max_block]
-    q_df = pd.DataFrame({"key": key[split.query], "i": split.query})
-    m = q_df.merge(pool_df, on="key")
-    found["exact"].append((m["i"].to_numpy(), m["j"].to_numpy()))
-    del name_code, key
+    m = pd.DataFrame({"key": key[queries], "i": queries}).merge(pool_df, on="key")
+    return m["i"].to_numpy(np.int32), m["j"].to_numpy(np.int32)
 
-    # union + flags
-    keys_b = {b: np.unique(np.concatenate([a.astype(np.int64) * n + b_ for a, b_ in found[b]]))
-              if found[b] else np.empty(0, np.int64) for b in cfg.blockers}
+
+def assemble(split: Split, res: Resources, cfg: RetrievalConfig, found: dict,
+             rows: np.ndarray | None = None) -> pd.DataFrame:
+    """Union of blockers for the S1 `rows` (all found if None), sorted by (i, j),
+    with blocker flags and similarity scores for every view."""
+    n = len(split.rec)
+    keys_b = {}
+    for b in cfg.blockers:
+        i, j = found[b]
+        if rows is not None:
+            sel = np.isin(i, rows)
+            i, j = i[sel], j[sel]
+        keys_b[b] = np.unique(i.astype(np.int64) * n + j)
     keys = np.unique(np.concatenate(list(keys_b.values())))
     cand = pd.DataFrame({"i": (keys // n).astype(np.int64), "j": (keys % n).astype(np.int64)})
     for b in cfg.blockers:
@@ -325,15 +395,52 @@ def generate_candidates(split: Split, cfg: RetrievalConfig, log=print) -> pd.Dat
         cand[f"blk_{b}"] = flag
     cand["n_blockers"] = cand[[f"blk_{b}" for b in cfg.blockers]].sum(axis=1).astype(np.int8)
     ii, jj = cand["i"].to_numpy(), cand["j"].to_numpy()
-    cand["src"] = src[jj]
+    cand["src"] = res.src[jj]
     for v in cfg.views:
-        cand[f"cos_{v}"] = rowwise_dense_dot(Z[v], ii, jj)
-    # rare-token score for every pair, with the weights of its (country, source)
+        cand[f"cos_{v}"] = rowwise_dense_dot(res.Z[v], ii, jj)
     cand["rare_score"] = np.float32(0)
-    for (c, tgt), (p, w) in rare_w.items():
-        sel = np.flatnonzero((cand["src"].to_numpy() == tgt) & (country[jj] == c))
+    for (c, tgt), w in res.rare_w.items():
+        sel = np.flatnonzero((cand["src"].to_numpy() == tgt) & (res.country[jj] == c))
         if len(sel):
-            cand.loc[sel, "rare_score"] = rowwise_sparse_dot(H, H, ii[sel], jj[sel], w)
+            cand.loc[sel, "rare_score"] = rowwise_sparse_dot(res.H, res.H, ii[sel], jj[sel], w)
+    return cand
+
+
+def reverse_best(split: Split, res: Resources, cfg: RetrievalConfig, cand_j: np.ndarray,
+                 view: str | None = None, k: int = 3) -> pd.DataFrame:
+    """For each candidate record j: its top-k S1s among ALL S1 of its country.
+
+    S1 is deduplicated and no record belongs to two S1s (checked on the full
+    train ground truth), so "is this S1 the best S1 for j?" is strong evidence.
+    Computed against every S1, not just the sampled queries, so train and test
+    see the same competition."""
+    view = view or cfg.views[0]
+    js = np.unique(cand_j)
+    best_i = np.full((len(js), k), -1, np.int64)
+    best_s = np.zeros((len(js), k), np.float32)
+    for c in np.unique(res.country[js]):
+        s1c = res.all_s1[res.country[res.all_s1] == c]
+        sel = np.flatnonzero(res.country[js] == c)
+        if len(s1c) == 0 or len(sel) == 0:
+            continue
+        index = ann_index(f32(res.Z[view], s1c), cfg.nprobe, cfg.seed)
+        kk = min(k, len(s1c))
+        for s in range(0, len(sel), 500_000):
+            part = sel[s:s + 500_000]
+            D, I = index.search(f32(res.Z[view], js[part]), kk)
+            best_i[part, :kk] = np.where(I >= 0, s1c[np.maximum(I, 0)], -1)
+            best_s[part, :kk] = np.where(I >= 0, D, 0)
+        del index
+    return pd.DataFrame({"j": js, "rev_i1": best_i[:, 0], "rev_s1": best_s[:, 0],
+                         "rev_s2": best_s[:, 1] if k > 1 else 0.0,
+                         "rev_i2": best_i[:, 1] if k > 1 else -1})
+
+
+def generate_candidates(split: Split, cfg: RetrievalConfig, log=print) -> pd.DataFrame:
+    t0 = time.time()
+    res = build_resources(split, cfg, log)
+    found = search(split, res, cfg, split.query, log)
+    cand = assemble(split, res, cfg, found)
     log(f"  union: {len(cand):,} pairs ({len(cand) / max(1, len(split.query)):.1f} per S1) "
         f"in {time.time() - t0:.0f}s total")
     return cand
