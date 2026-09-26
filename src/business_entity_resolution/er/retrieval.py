@@ -45,9 +45,10 @@ HASH_BITS = 24
 @dataclass
 class RetrievalConfig:
     views: tuple[str, ...] = ("full", "addr", "skel")
-    k_ann: int = 15            # neighbours per S1, per view, per target source
-    k_rare: int = 15           # rare-token candidates per S1, per target source
-    rare_max_df: int = 100     # "rare" = appears in <= this many pool records
+    k_ann: int = 25            # neighbours per S1, per view, per target source
+    k_rare: int = 20           # rare-token candidates per S1, per target source
+    rare_max_df: int = 100     # "rare" = in <= max(rare_max_df, rare_per_million * pool/1e6)
+    rare_per_million: int = 300  # pool records; scales with pool size (3M pool -> 900)
     exact_max_block: int = 50  # skip exact-name blocks bigger than this
     svd_dim: int = 128
     fit_sample: int = 200_000  # rows used to fit TF-IDF vocab + SVD (vocab saturates early)
@@ -226,7 +227,7 @@ def rare_weights(P: sp.csr_matrix, max_df: int) -> np.ndarray:
 
 
 def rare_search(Hq: sp.csr_matrix, Hp: sp.csr_matrix, w: np.ndarray, k: int,
-                chunk: int = 100_000):
+                chunk: int = 20_000):
     """Top-k pool rows by summed IDF of shared rare tokens, per query row."""
     Pb = Hp.copy()
     Pb.data = (w[Pb.indices] > 0).astype(np.float32)
@@ -309,7 +310,8 @@ def build_resources(split: Split, cfg: RetrievalConfig, log=print) -> Resources:
         for tgt in (2, 3):
             p = np.flatnonzero((src == tgt) & (country == c))
             if len(p):
-                rare_w[(int(c), tgt)] = rare_weights(H[p], cfg.rare_max_df)
+                max_df = max(cfg.rare_max_df, int(cfg.rare_per_million * len(p) / 1e6))
+                rare_w[(int(c), tgt)] = rare_weights(H[p], max_df)
     log(f"    token index: {Hn.nnz:,} name + {Ha.nnz:,} address tokens in {time.time() - t:.0f}s")
     return Resources(Z, Hn, Ha, H, idf_weights(Hn), idf_weights(Ha), rare_w, src, country, all_s1)
 

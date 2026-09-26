@@ -273,7 +273,7 @@ def main() -> None:
     ap.add_argument("--tag", default="m1")
     ap.add_argument("--s1-sample", type=float, default=100_000)
     ap.add_argument("--out", default=str(ROOT / "output"))
-    ap.add_argument("--chunk", type=int, default=150_000, help="test S1s per batch")
+    ap.add_argument("--chunk", type=int, default=100_000, help="test S1s per batch")
     ap.add_argument("--pre-neg-frac", type=float, default=0.3)
     ap.add_argument("--max-prerank-loss", type=float, default=0.003)
     ap.add_argument("--save-oof", action="store_true")
