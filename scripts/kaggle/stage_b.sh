@@ -2,7 +2,7 @@
 # Stage B on Kaggle: train on a sample of train S1s -> predict all test S1s -> output/*.tsv
 #   SMOKE=1 bash ber/scripts/kaggle/stage_b.sh   # ~15 min check on a slice of the data
 #   bash ber/scripts/kaggle/stage_b.sh           # full run (use "Save & Run All")
-# Optional env: TAG (default m1), S1_SAMPLE (default 100000), VIEWS (e.g. "full addr skel")
+# Optional env: TAG (default m1), S1_SAMPLE (default 60000), VIEWS (e.g. "full addr skel")
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 pip install -q faiss-cpu unidecode rapidfuzz 2>&1 | grep -v -i "warning\|notice" || true
@@ -40,7 +40,7 @@ if [ ! -f "$WORK/test/records.parquet" ]; then
     python scripts/prepare_data.py --data-root "$ROOT" --out "$WORK"
   fi
 fi
-python scripts/run_stage_b.py train --work "$WORK" --s1-sample "${S1_SAMPLE:-100000}" --tag "$TAG" --scratch $SCR $VIEW_ARGS
+python scripts/run_stage_b.py train --work "$WORK" --s1-sample "${S1_SAMPLE:-60000}" --tag "$TAG" --scratch $SCR $VIEW_ARGS
 rm -f $SCR/Z_train_*              # free disk before building the test vectors
 python scripts/run_stage_b.py predict --work "$WORK" --tag "$TAG" --scratch $SCR --out "$OUT"
 cp "$WORK/models/$TAG/meta.json" "$OUT/meta_$TAG.json"

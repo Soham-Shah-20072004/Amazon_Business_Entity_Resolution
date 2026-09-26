@@ -149,4 +149,5 @@ def prepare_split(data_root: Path, split: str, out: Path, workers: int, log=prin
 
 
 def default_workers() -> int:
-    return max(1, (os.cpu_count() or 2) - 1)
+    # all cores: the parent process only hands out work and writes results
+    return max(1, os.cpu_count() or 2)
