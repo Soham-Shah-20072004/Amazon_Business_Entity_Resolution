@@ -34,3 +34,4 @@ output/*
 
 # ---- Pipeline artifacts (OOF preds, models) ----
 artifacts/
+work/
