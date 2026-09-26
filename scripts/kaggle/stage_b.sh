@@ -2,10 +2,16 @@
 # Stage B on Kaggle: train on a sample of train S1s -> predict all test S1s -> output/*.tsv
 #   SMOKE=1 bash ber/scripts/kaggle/stage_b.sh   # ~15 min check on a slice of the data
 #   bash ber/scripts/kaggle/stage_b.sh           # full run (use "Save & Run All")
-# Optional env: TAG (default m1), S1_SAMPLE (default 60000), VIEWS (e.g. "full addr skel")
+# Optional env: TAG (default m1), S1_SAMPLE (default 60000), VIEWS (e.g. "full addr skel"),
+#               NPROBE (IVF cells searched, default 32; lower = faster, higher = better recall)
 set -euo pipefail
 cd "$(dirname "$0")/../.."
-pip install -q faiss-cpu unidecode rapidfuzz 2>&1 | grep -v -i "warning\|notice" || true
+if command -v nvidia-smi >/dev/null && nvidia-smi >/dev/null 2>&1; then
+  FAISS=faiss-gpu-cu12; echo "GPU found: nearest-neighbour search will run on GPU"
+else
+  FAISS=faiss-cpu
+fi
+pip install -q $FAISS unidecode rapidfuzz 2>&1 | grep -v -i "warning\|notice" || true
 
 S1=$(find -L /kaggle/input -name train_source1.tsv 2>/dev/null | head -1 || true)
 if [ -z "$S1" ]; then
@@ -17,7 +23,7 @@ fi
 ROOT=$(dirname "$(dirname "$S1")")
 echo "dataset: $ROOT"; echo "machine: $(nproc) CPUs"; free -g | head -2
 TAG=${TAG:-m1}
-VIEW_ARGS=${VIEWS:+--views $VIEWS}
+VIEW_ARGS="${VIEWS:+--views $VIEWS} ${NPROBE:+--nprobe $NPROBE}"
 SCR=/tmp/ber_scratch
 
 if [ "${SMOKE:-0}" = "1" ]; then

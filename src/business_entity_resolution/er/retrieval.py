@@ -349,19 +349,42 @@ def search(split: Split, res: Resources, cfg: RetrievalConfig, queries: np.ndarr
             for b, v in found.items()}
 
 
+def n_gpus() -> int:
+    return faiss.get_num_gpus() if hasattr(faiss, "get_num_gpus") else 0
+
+
 def ann_index(Zp: np.ndarray, nprobe: int, seed: int):
+    """IVF index (exact flat index for small pools). Uses every GPU when the
+    faiss-gpu build is installed and a GPU is present - the IVF scan is the
+    slowest step on CPU (~20-28 min per country/source for 1.7M test S1s)."""
     n, d = Zp.shape
-    if n <= 20_000:
-        index = faiss.IndexFlatIP(d)
-    else:
-        nlist = int(max(16, min(2 * math.sqrt(n), n / 40)))   # fewer cells = faster build
-        index = faiss.IndexIVFFlat(faiss.IndexFlatIP(d), d, nlist, faiss.METRIC_INNER_PRODUCT)
+    gpu = n_gpus() > 0
+    ivf = n > 20_000
+    if ivf:
+        index = faiss.IndexIVFFlat(faiss.IndexFlatIP(d), d, _nlist(n), faiss.METRIC_INNER_PRODUCT)
         index.cp.niter = 10
-        rng = np.random.default_rng(seed)
-        index.train(Zp[np.sort(rng.choice(n, min(n, nlist * 40), replace=False))])
-        index.nprobe = nprobe
+    else:
+        index = faiss.IndexFlatIP(d)
+    if gpu:
+        index = faiss.index_cpu_to_all_gpus(index)
+    if ivf:
+        index.train(_train_sample(Zp, seed))
+        if gpu:
+            faiss.GpuParameterSpace().set_index_parameter(index, "nprobe", nprobe)
+        else:
+            index.nprobe = nprobe
     index.add(Zp)
     return index
+
+
+def _nlist(n: int) -> int:
+    return int(max(16, min(2 * math.sqrt(n), n / 40)))   # fewer cells = faster build
+
+
+def _train_sample(Zp: np.ndarray, seed: int) -> np.ndarray:
+    n = len(Zp)
+    rng = np.random.default_rng(seed)
+    return Zp[np.sort(rng.choice(n, min(n, _nlist(n) * 40), replace=False))]
 
 
 def exact_blocks(split: Split, res: Resources, cfg: RetrievalConfig, queries: np.ndarray):
