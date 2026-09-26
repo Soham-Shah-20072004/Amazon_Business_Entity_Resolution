@@ -15,26 +15,32 @@ import csv
 import json
 import os
 import time
-from multiprocessing import Pool
+import multiprocessing as mp
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import pyarrow as pa
+import pyarrow.compute as pc
+import pyarrow.parquet as pq
 
 from . import text as T
 
 SRC_COLS = ["entity_id", "business_name", "business_address", "country"]
 
 
-def read_source(path: Path) -> pd.DataFrame:
-    """C-engine TSV read; QUOTE_NONE so a stray '"' in an address can't swallow rows."""
-    df = pd.read_csv(path, sep="\t", dtype=str, keep_default_na=False, na_filter=False,
-                     quoting=csv.QUOTE_NONE, engine="c")
-    df.columns = [c.replace("﻿", "").strip() for c in df.columns]
-    missing = [c for c in SRC_COLS if c not in df.columns]
-    if missing:
-        raise ValueError(f"{path}: missing columns {missing}")
-    return df[SRC_COLS]
+def read_source(path: Path, chunk_rows: int = 400_000, max_rows: int | None = None):
+    """Yield DataFrame chunks. C engine + QUOTE_NONE so a stray '"' in an
+    address can't swallow rows; chunked so memory stays flat on small boxes."""
+    reader = pd.read_csv(path, sep="\t", dtype=str, keep_default_na=False, na_filter=False,
+                         quoting=csv.QUOTE_NONE, engine="c", chunksize=chunk_rows, nrows=max_rows)
+    for k, df in enumerate(reader):
+        df.columns = [c.replace("\ufeff", "").strip() for c in df.columns]
+        if k == 0:
+            missing = [c for c in SRC_COLS if c not in df.columns]
+            if missing:
+                raise ValueError(f"{path}: missing columns {missing}")
+        yield df[SRC_COLS]
 
 
 def count_lines(path: Path) -> int:
@@ -71,42 +77,57 @@ def normalise_frame(df: pd.DataFrame) -> pd.DataFrame:
     })
 
 
-def _parallel_normalise(df: pd.DataFrame, workers: int, chunk: int = 100_000) -> pd.DataFrame:
-    parts = [df.iloc[s:s + chunk] for s in range(0, len(df), chunk)]
-    if workers <= 1 or len(parts) == 1:
-        return pd.concat([normalise_frame(p) for p in parts], ignore_index=True)
-    with Pool(workers) as pool:
-        out = pool.map(normalise_frame, parts, chunksize=1)
+def _parallel_normalise(df: pd.DataFrame, pool, workers: int) -> pd.DataFrame:
+    step = max(1, -(-len(df) // max(1, workers)))
+    parts = [df.iloc[s:s + step] for s in range(0, len(df), step)]
+    out = pool.map(normalise_frame, parts) if pool else [normalise_frame(p) for p in parts]
     return pd.concat(out, ignore_index=True)
 
 
-def prepare_split(data_root: Path, split: str, out: Path, workers: int, log=print) -> dict:
+def prepare_split(data_root: Path, split: str, out: Path, workers: int, log=print,
+                  max_rows: int | None = None) -> dict:
+    """Stream each source file in chunks -> normalise in parallel -> append to one
+    parquet file. Peak memory is a few chunks, not the whole split."""
     t0 = time.time()
     src_dir = Path(data_root) / split
     dst = Path(out) / split
     dst.mkdir(parents=True, exist_ok=True)
-    manifest = {"split": split, "tables": {}}
-    frames = []
-    for s in (1, 2, 3):
-        path = src_dir / f"{split}_source{s}.tsv"
-        t = time.time()
-        raw = read_source(path)
-        n_lines = count_lines(path) - 1
-        if n_lines != len(raw):
-            log(f"  WARNING {path.name}: {len(raw):,} rows parsed but {n_lines:,} data lines in file")
-        norm = _parallel_normalise(raw, workers)
-        norm.insert(1, "source", np.int8(s))
-        frames.append(norm)
-        manifest["tables"][f"source{s}"] = {"rows": len(raw), "lines": n_lines}
-        log(f"  {path.name}: {len(raw):,} rows normalised in {time.time() - t:.0f}s")
-    rec = pd.concat(frames, ignore_index=True)
-    dup = rec["entity_id"].duplicated()
-    if dup.any():
-        raise ValueError(f"{split}: {int(dup.sum())} duplicate entity ids, e.g. "
-                         f"{rec.loc[dup, 'entity_id'].head(3).tolist()}")
-    rec.to_parquet(dst / "records.parquet", compression="zstd", index=False)
-    manifest["countries"] = rec.groupby(["source", "country_norm"]).size() \
-        .rename("n").reset_index().to_dict("records")
+    manifest = {"split": split, "tables": {}, "max_rows": max_rows}
+    writer = None
+    pool = mp.get_context("fork").Pool(workers) if workers > 1 else None
+    try:
+        for s in (1, 2, 3):
+            path = src_dir / f"{split}_source{s}.tsv"
+            t = time.time()
+            n_rows = 0
+            for chunk in read_source(path, max_rows=max_rows):
+                norm = _parallel_normalise(chunk, pool, workers)
+                norm.insert(1, "source", np.int8(s))
+                table = pa.Table.from_pandas(norm, preserve_index=False)
+                if writer is None:
+                    writer = pq.ParquetWriter(dst / "records.parquet", table.schema, compression="zstd")
+                writer.write_table(table.cast(writer.schema))
+                n_rows += len(chunk)
+            n_lines = count_lines(path) - 1
+            if max_rows is None and n_lines != n_rows:
+                log(f"  WARNING {path.name}: {n_rows:,} rows parsed but {n_lines:,} data lines in file")
+            manifest["tables"][f"source{s}"] = {"rows": n_rows, "lines": n_lines}
+            log(f"  {path.name}: {n_rows:,} rows normalised in {time.time() - t:.0f}s")
+    finally:
+        if writer is not None:
+            writer.close()
+        if pool is not None:
+            pool.close()
+            pool.join()
+
+    ids = pq.read_table(dst / "records.parquet", columns=["entity_id"]).column(0)
+    n_unique = pc.count_distinct(ids).as_py()
+    if n_unique != len(ids):
+        raise ValueError(f"{split}: {len(ids) - n_unique} duplicate entity ids")
+    meta = pq.read_table(dst / "records.parquet", columns=["source", "country_norm"])
+    manifest["countries"] = meta.group_by(["source", "country_norm"]).aggregate(
+        [([], "count_all")]).to_pylist()
+    del ids, meta
 
     gt_path = src_dir / f"{split}_ground_truth.tsv"
     if gt_path.exists():
@@ -116,9 +137,8 @@ def prepare_split(data_root: Path, split: str, out: Path, workers: int, log=prin
             .explode("cand")[["source1_entity_id", "cand"]] \
             .rename(columns={"source1_entity_id": "s1"})
         pairs["cand"] = pairs["cand"].str.strip()
-        pairs = pairs[pairs["cand"] != ""].drop_duplicates()
+        pairs = pairs[pairs["cand"].notna() & (pairs["cand"] != "")].drop_duplicates()
         pairs.to_parquet(dst / "truth.parquet", compression="zstd", index=False)
-        pd.DataFrame({"s1": gt["source1_entity_id"]}).to_parquet(dst / "gt_s1.parquet", index=False)
         manifest["truth"] = {"s1_rows": len(gt), "pairs": len(pairs),
                              "cands_with_2plus_owners": int(pairs["cand"].duplicated().sum())}
         log(f"  ground truth: {len(gt):,} S1 rows, {len(pairs):,} positive pairs, "

@@ -22,7 +22,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from business_entity_resolution.er.dataset import load_split  # noqa: E402
+from business_entity_resolution.er.dataset import RETRIEVAL_COLUMNS, load_split  # noqa: E402
 from business_entity_resolution.er.prepare import default_workers  # noqa: E402
 from business_entity_resolution.er.retrieval import (  # noqa: E402
     RetrievalConfig, blocking_report, generate_candidates)
@@ -46,7 +46,7 @@ def main() -> None:
                              and f.name != "views"}, views=tuple(args.views))
 
     t = time.time()
-    split = load_split(args.work, args.split, s1_sample=args.s1_sample)
+    split = load_split(args.work, args.split, s1_sample=args.s1_sample, columns=RETRIEVAL_COLUMNS)
     print(f"[{time.strftime('%H:%M:%S')}] loaded {args.split}: {len(split.rec):,} records, "
           f"{len(split.query):,} S1 queries in {time.time() - t:.0f}s", flush=True)
     cand = generate_candidates(split, cfg, log=lambda s: print(s, flush=True))

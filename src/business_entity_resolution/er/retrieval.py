@@ -23,9 +23,10 @@ downstream pre-ranker and matcher use as features.
 from __future__ import annotations
 
 import math
+import multiprocessing as mp
 import time
+from pathlib import Path
 from dataclasses import dataclass, field
-from multiprocessing import Pool
 
 import faiss
 import numpy as np
@@ -48,10 +49,11 @@ class RetrievalConfig:
     rare_max_df: int = 100     # "rare" = appears in <= this many pool records
     exact_max_block: int = 50  # skip exact-name blocks bigger than this
     svd_dim: int = 128
-    fit_sample: int = 400_000  # rows used to fit TF-IDF vocab + SVD
+    fit_sample: int = 200_000  # rows used to fit TF-IDF vocab + SVD (vocab saturates early)
     nprobe: int = 32           # IVF cells searched per query (recall vs speed)
     workers: int = 8
     seed: int = 42
+    scratch: str = "/tmp/ber_scratch"   # on-disk (memory-mapped) vectors live here
     blockers: tuple[str, ...] = field(init=False)
 
     def __post_init__(self):
@@ -94,47 +96,69 @@ class LSA:
         return Z
 
 
-_W: dict = {}
+# Workers are forked, so they inherit the (Arrow-backed) text columns and the
+# fitted models through this dict instead of receiving pickled copies; each
+# task is just a (lo, hi) range into `rows`. Keeps memory flat on small boxes.
+_G: dict = {}
 
 
-def _init_worker(obj):
-    _W["obj"] = obj
+def _ranges(n: int, size: int) -> list[tuple[int, int]]:
+    return [(s, min(s + size, n)) for s in range(0, n, size)]
 
 
-def _lsa_chunk(texts):
-    return _W["obj"].transform(texts)
+def imap_ranges(func, n: int, size: int, workers: int, **shared):
+    """Yield ((lo, hi), func((lo, hi))) in order; `shared` is visible to func via _G."""
+    _G.clear()
+    _G.update(shared)
+    rs = _ranges(n, size)
+    if workers <= 1 or len(rs) == 1:
+        for r in rs:
+            yield r, func(r)
+        return
+    with mp.get_context("fork").Pool(workers) as pool:
+        yield from zip(rs, pool.imap(func, rs, chunksize=1))
 
 
-def _hash_chunk(docs):
-    return _W["obj"].transform(docs)
+def _lsa_range(r):
+    lo, hi = r
+    texts = _G["texts"].iloc[_G["rows"][lo:hi]].tolist()
+    return _G["lsa"].transform(texts).astype(np.float16)
 
 
-def _chunks(seq: list, size: int) -> list[list]:
-    return [seq[s:s + size] for s in range(0, len(seq), size)]
-
-
-def parallel_map(func, obj, chunks, workers):
-    if workers <= 1 or len(chunks) == 1:
-        _init_worker(obj)
-        return [func(c) for c in chunks]
-    with Pool(workers, initializer=_init_worker, initargs=(obj,)) as pool:
-        return pool.map(func, chunks, chunksize=1)
+def _hash_range(r):
+    lo, hi = r
+    rows = _G["rows"][lo:hi]
+    docs = [f"{a}\t{b}\t{c}" for a, b, c in zip(_G["name"].iloc[rows].tolist(),
+                                                  _G["addr"].iloc[rows].tolist(),
+                                                  _G["post"].iloc[rows].tolist())]
+    return _G["hv"].transform(docs)
 
 
 def embed_view(rec: pd.DataFrame, rows: np.ndarray, view: str, cfg: RetrievalConfig,
-               log=print) -> np.ndarray:
-    """Return an (n_rec, dim) float32 array; rows outside `rows` stay zero."""
+               tag: str, log=print) -> np.ndarray:
+    """(n_rec, dim) float16 memory-mapped array on disk; rows outside `rows` stay zero.
+
+    float16 halves the footprint (cosines only need ~3 digits) and the OS
+    page cache keeps the hot parts in RAM when there is room."""
     t = time.time()
     texts = view_text(rec, view)
     rng = np.random.default_rng(cfg.seed)
-    fit_rows = rng.choice(rows, min(cfg.fit_sample, len(rows)), replace=False)
+    fit_rows = np.sort(rng.choice(rows, min(cfg.fit_sample, len(rows)), replace=False))
     lsa = LSA(view, cfg.svd_dim, cfg.seed).fit(texts.iloc[fit_rows].tolist())
-    Z = np.zeros((len(rec), lsa.comp.shape[1]), np.float32)
-    parts = parallel_map(_lsa_chunk, lsa, _chunks(texts.iloc[rows].tolist(), 50_000), cfg.workers)
-    Z[rows] = np.vstack(parts)
+    Path(cfg.scratch).mkdir(parents=True, exist_ok=True)
+    Z = np.lib.format.open_memmap(Path(cfg.scratch) / f"Z_{tag}_{view}.npy", mode="w+",
+                                  dtype=np.float16, shape=(len(rec), lsa.comp.shape[1]))
+    for (lo, hi), part in imap_ranges(_lsa_range, len(rows), 50_000, cfg.workers,
+                                      texts=texts, rows=rows, lsa=lsa):
+        Z[rows[lo:hi]] = part
+    Z.flush()
     log(f"    view {view}: vocab {len(lsa.vec.vocabulary_):,} -> {lsa.comp.shape[1]}-d, "
         f"{len(rows):,} rows embedded in {time.time() - t:.0f}s")
     return Z
+
+
+def f32(Z: np.ndarray, rows: np.ndarray) -> np.ndarray:
+    return np.ascontiguousarray(Z[rows], dtype=np.float32)
 
 
 def ann_search(Zq: np.ndarray, Zp: np.ndarray, k: int, nprobe: int, seed: int):
@@ -145,8 +169,9 @@ def ann_search(Zq: np.ndarray, Zp: np.ndarray, k: int, nprobe: int, seed: int):
     else:
         nlist = int(max(16, min(4 * math.sqrt(n), n / 40)))
         index = faiss.IndexIVFFlat(faiss.IndexFlatIP(d), d, nlist, faiss.METRIC_INNER_PRODUCT)
+        index.cp.niter = 10                   # k-means iterations for the cell centroids
         rng = np.random.default_rng(seed)
-        index.train(Zp[rng.choice(n, min(n, nlist * 64), replace=False)])
+        index.train(Zp[np.sort(rng.choice(n, min(n, nlist * 40), replace=False))])
         index.nprobe = nprobe
     index.add(Zp)
     return index.search(Zq, k)
@@ -170,10 +195,13 @@ def hashed_tokens(rec: pd.DataFrame, rows: np.ndarray, workers: int) -> sp.csr_m
     workers); the rare collisions only perturb blocking scores slightly."""
     if np.any(np.diff(rows) <= 0):
         raise ValueError("rows must be strictly increasing")
-    docs = (rec["name_core"] + "\t" + rec["addr_canon"] + "\t" + rec["addr_post"]).iloc[rows].tolist()
     hv = HashingVectorizer(analyzer=rare_analyzer, n_features=1 << HASH_BITS, alternate_sign=False,
                            norm=None, binary=True, dtype=np.float32)
-    H = sp.vstack(parallel_map(_hash_chunk, hv, _chunks(docs, 100_000), workers)).tocsr()
+    parts = [m for _, m in imap_ranges(_hash_range, len(rows), 100_000, workers, hv=hv, rows=rows,
+                                       name=rec["name_core"], addr=rec["addr_canon"],
+                                       post=rec["addr_post"])]
+    H = sp.vstack(parts).tocsr()
+    del parts
     counts = np.zeros(len(rec), np.int64)
     counts[rows] = np.diff(H.indptr)
     indptr = np.concatenate([[0], np.cumsum(counts)])
@@ -228,7 +256,9 @@ def rowwise_sparse_dot(A: sp.csr_matrix, B: sp.csr_matrix, ii, jj, w=None,
 def rowwise_dense_dot(Z: np.ndarray, ii, jj, chunk: int = 2_000_000) -> np.ndarray:
     out = np.empty(len(ii), np.float32)
     for s in range(0, len(ii), chunk):
-        out[s:s + chunk] = np.einsum("ij,ij->i", Z[ii[s:s + chunk]], Z[jj[s:s + chunk]])
+        a = np.asarray(Z[ii[s:s + chunk]], dtype=np.float32)
+        b = np.asarray(Z[jj[s:s + chunk]], dtype=np.float32)
+        out[s:s + chunk] = np.einsum("ij,ij->i", a, b)
     return out
 
 
@@ -239,16 +269,16 @@ def generate_candidates(split: Split, cfg: RetrievalConfig, log=print) -> pd.Dat
     n = len(rec)
     faiss.omp_set_num_threads(cfg.workers)
     src = rec["source"].to_numpy()
-    country = rec["country_norm"].to_numpy()
-    q_countries = pd.unique(country[split.query])
+    country = rec["country_code"].to_numpy()
+    q_countries = np.unique(country[split.query])
     pool_mask = (src != 1) & np.isin(country, q_countries)
     active = np.union1d(split.query, np.flatnonzero(pool_mask))
     log(f"  queries {len(split.query):,} S1 | pool {pool_mask.sum():,} S2/S3 | "
-        f"countries {list(q_countries)}")
+        f"countries {[split.countries[c] for c in q_countries]}")
 
     found: dict[str, list] = {b: [] for b in cfg.blockers}
     t0 = time.time()
-    Z = {v: embed_view(rec, active, v, cfg, log) for v in cfg.views}
+    Z = {v: embed_view(rec, active, v, cfg, split.name, log) for v in cfg.views}
     t = time.time()
     H = hashed_tokens(rec, active, cfg.workers)
     log(f"    rare-token index: {H.nnz:,} tokens in {time.time() - t:.0f}s")
@@ -262,25 +292,27 @@ def generate_candidates(split: Split, cfg: RetrievalConfig, log=print) -> pd.Dat
                 continue
             t = time.time()
             for v in cfg.views:
-                D, I = ann_search(Z[v][q], Z[v][p], cfg.k_ann, cfg.nprobe, cfg.seed)
+                D, I = ann_search(f32(Z[v], q), f32(Z[v], p), cfg.k_ann, cfg.nprobe, cfg.seed)
                 ok = (I >= 0) & (D > 0)
                 found[f"ann_{v}"].append((np.repeat(q, I.shape[1])[ok.ravel()], p[I[ok]]))
             w = rare_weights(H[p], cfg.rare_max_df)
             rare_w[(c, tgt)] = (p, w)
             qi, pj, _ = rare_search(H[q], H[p], w, cfg.k_rare)
             found["rare"].append((q[qi], p[pj]))
-            log(f"    {c} -> S{tgt}: {len(q):,} x {len(p):,} searched in {time.time() - t:.0f}s")
+            log(f"    {split.countries[c]} -> S{tgt}: {len(q):,} x {len(p):,} searched "
+                f"in {time.time() - t:.0f}s")
 
-    # exact core-name blocks (within country, skip generic names)
-    key = pd.Series(country.astype(object) + "|" + rec["name_core"].to_numpy().astype(object))
-    pool_rows = np.flatnonzero(pool_mask & (rec["name_core"].to_numpy() != ""))
-    pool_keys = key.iloc[pool_rows]
-    sizes = pool_keys.map(pool_keys.value_counts())
-    pool_df = pd.DataFrame({"key": pool_keys.to_numpy(), "j": pool_rows})[
-        sizes.to_numpy() <= cfg.exact_max_block]
-    q_df = pd.DataFrame({"key": key.iloc[split.query].to_numpy(), "i": split.query})
+    # exact core-name blocks (within country, skip generic names), on integer keys
+    name_code, _ = pd.factorize(rec["name_core"])
+    has_name = rec["name_core"].str.len().to_numpy(dtype=np.int64, na_value=0) > 0
+    key = country.astype(np.int64) * (int(name_code.max()) + 2) + name_code
+    pool_rows = np.flatnonzero(pool_mask & has_name)
+    uk, inv, cnt = np.unique(key[pool_rows], return_inverse=True, return_counts=True)
+    pool_df = pd.DataFrame({"key": key[pool_rows], "j": pool_rows})[cnt[inv] <= cfg.exact_max_block]
+    q_df = pd.DataFrame({"key": key[split.query], "i": split.query})
     m = q_df.merge(pool_df, on="key")
     found["exact"].append((m["i"].to_numpy(), m["j"].to_numpy()))
+    del name_code, key
 
     # union + flags
     keys_b = {b: np.unique(np.concatenate([a.astype(np.int64) * n + b_ for a, b_ in found[b]]))
@@ -332,9 +364,9 @@ def blocking_report(split: Split, cand: pd.DataFrame, cfg: RetrievalConfig) -> d
     tsrc = split.rec["source"].to_numpy()[split.truth["j"].to_numpy()]
     for s in (2, 3):
         rep[f"recall_S{s}"] = float(hit[tsrc == s].mean()) if (tsrc == s).any() else float("nan")
-    tc = split.rec["country_norm"].to_numpy()[split.truth["i"].to_numpy()]
-    for c in pd.unique(tc):
-        rep[f"recall_{c}"] = float(hit[tc == c].mean())
+    tc = split.rec["country_code"].to_numpy()[split.truth["i"].to_numpy()]
+    for c in np.unique(tc):
+        rep[f"recall_{split.countries[c]}"] = float(hit[tc == c].mean())
     nb = cand["n_blockers"].to_numpy()
     for b in cfg.blockers:
         f = cand[f"blk_{b}"].to_numpy() == 1
