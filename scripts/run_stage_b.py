@@ -188,6 +188,8 @@ def cmd_train(args, cfg) -> None:
             "kept_per_s1": len(red) / len(q), "union_per_s1": len(cheap) / len(q)}
     (out / "meta.json").write_text(json.dumps(meta, indent=2, default=float))
     full.to_parquet(out / "train_pairs.parquet", index=False)   # reused by stacking / neural models
+    np.save(out / "queries.npy", q)                              # every sampled S1 (incl. ones with no pairs)
+    split.truth.to_parquet(out / "truth.parquet", index=False)
 
     print("\n" + table.head(6).to_string())
     print("\n" + slices.to_string())
