@@ -6,9 +6,9 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."
 pip install -q faiss-cpu unidecode rapidfuzz 2>&1 | grep -v -i "warning\|notice" || true
 
-S1=$(find /kaggle/input -name train_source1.tsv 2>/dev/null | head -1 || true)
+S1=$(find -L /kaggle/input -name train_source1.tsv 2>/dev/null | head -1 || true)
 if [ -z "$S1" ]; then            # dataset uploaded as a zip that Kaggle did not unpack
-  Z=$(find /kaggle/input -name "*.zip" | head -1)
+  Z=$(find -L /kaggle/input -name "*.zip" | head -1)
   [ -n "$Z" ] || { echo "No train_source1.tsv or .zip under /kaggle/input - add the dataset"; exit 1; }
   mkdir -p /tmp/ber_data && python -m zipfile -e "$Z" /tmp/ber_data
   S1=$(find /tmp/ber_data -name train_source1.tsv | head -1)
