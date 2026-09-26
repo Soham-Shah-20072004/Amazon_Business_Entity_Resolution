@@ -24,7 +24,7 @@ if [ "${SMOKE:-0}" = "1" ]; then
   WORK=/tmp/ber_smoke_b; OUT=/tmp/ber_smoke_out
   [ -f "$WORK/test/records.parquet" ] || python scripts/prepare_data.py --data-root "$ROOT" --out "$WORK" --max-rows 300000
   python scripts/run_stage_b.py train --work "$WORK" --s1-sample 5000 --tag smoke --scratch $SCR --fit-sample 100000 $VIEW_ARGS
-  python scripts/run_stage_b.py predict --work "$WORK" --tag smoke --scratch $SCR --out $OUT --chunk 50000
+  python scripts/run_stage_b.py predict --work "$WORK" --tag smoke --scratch $SCR --out $OUT --chunk 10000 --limit-s1 20000
   echo "(smoke run: submission check skipped - the data slice is incomplete by design)"
   exit 0
 fi
@@ -44,6 +44,7 @@ python scripts/run_stage_b.py train --work "$WORK" --s1-sample "${S1_SAMPLE:-600
 rm -f $SCR/Z_train_*              # free disk before building the test vectors
 python scripts/run_stage_b.py predict --work "$WORK" --tag "$TAG" --scratch $SCR --out "$OUT"
 cp "$WORK/models/$TAG/meta.json" "$OUT/meta_$TAG.json"
+rm -f $SCR/Z_test_*
 V=$(find -L /kaggle/input -name validate_submission.py 2>/dev/null | head -1 || true)
 if [ -n "$V" ]; then
   python "$V" --matching "$OUT/matching_results.tsv" --candidate "$OUT/candidate_pairs.tsv" --test-dir "$ROOT/test"

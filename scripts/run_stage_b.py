@@ -133,14 +133,17 @@ def cmd_train(args, cfg) -> None:
             rows.append({"k_pre": k_pre, "t_pre": t_pre, "per_s1": keep.sum() / len(q),
                          "loss": 1 - cheap["label"].to_numpy()[keep].sum() / max(1, n_pos_union)})
     grid = pd.DataFrame(rows)
-    ok = grid[grid["loss"] <= args.max_prerank_loss]
-    choice = (ok if len(ok) else grid.sort_values("loss").head(1)).sort_values("per_s1").iloc[0]
+    # smallest list within the loss budget; if nothing meets it (e.g. few positives),
+    # the smallest list within the budget of the best achievable loss
+    budget = max(args.max_prerank_loss, grid["loss"].min() + args.max_prerank_loss)
+    choice = grid[grid["loss"] <= budget].sort_values("per_s1").iloc[0]
     k_pre, t_pre = int(choice["k_pre"]), float(choice["t_pre"])
     keep = prerank_keep(cheap, t_pre, k_pre)
     red = cheap[keep].reset_index(drop=True)
     log(f"pre-ranker keeps k<={k_pre}, p>={t_pre}: {len(red) / len(q):.2f}/S1, "
         f"recall {red['label'].sum() / len(ti):.4f}")
-    print(grid.pivot(index="k_pre", columns="t_pre", values="per_s1").round(2).to_string())
+    print("candidates kept per S1:\n" + grid.pivot(index="k_pre", columns="t_pre", values="per_s1").round(2).to_string())
+    print("share of blocked matches lost:\n" + grid.pivot(index="k_pre", columns="t_pre", values="loss").round(4).to_string())
 
     # matcher on the survivors
     full = full_features(split.rec, res, red, cfg.workers)
@@ -184,8 +187,7 @@ def cmd_train(args, cfg) -> None:
             "union_recall": n_pos_union / len(ti), "kept_recall": float(red["label"].sum() / len(ti)),
             "kept_per_s1": len(red) / len(q), "union_per_s1": len(cheap) / len(q)}
     (out / "meta.json").write_text(json.dumps(meta, indent=2, default=float))
-    if args.save_oof:
-        full[["i", "j", "src", "label", "pre_p", "p"]].to_parquet(out / "oof.parquet", index=False)
+    full.to_parquet(out / "train_pairs.parquet", index=False)   # reused by stacking / neural models
 
     print("\n" + table.head(6).to_string())
     print("\n" + slices.to_string())
@@ -211,8 +213,10 @@ def cmd_predict(args, cfg) -> None:
     import lightgbm as lgb
     pre_model = lgb.Booster(model_file=str(mdir / "prerank.txt"))
     match_model = lgb.Booster(model_file=str(mdir / "matcher.txt"))
-    split, res, found, rev = retrieve(args, cfg, "test", None)
+    split, res, found, rev = retrieve(args, cfg, "test", args.limit_s1)
     q = split.query
+    cache = mdir / "test_pairs"
+    cache.mkdir(exist_ok=True)
     kept_parts = []
     n_union = 0
     for s in range(0, len(q), args.chunk):
@@ -226,6 +230,8 @@ def cmd_predict(args, cfg) -> None:
         del cheap
         full = full_features(split.rec, res, red, cfg.workers)
         red["p"] = match_model.predict(full[meta["full_columns"]])
+        full["p"] = red["p"].to_numpy()
+        full.to_parquet(cache / f"part-{s // args.chunk:03d}.parquet", index=False)
         kept_parts.append(red[["i", "j", "src", "pre_p", "p"]])
         log(f"  S1 {s + 1:,}-{min(s + args.chunk, len(q)):,}: {len(red):,} candidates kept")
     allc = pd.concat(kept_parts, ignore_index=True)
@@ -274,9 +280,10 @@ def main() -> None:
     ap.add_argument("--s1-sample", type=float, default=100_000)
     ap.add_argument("--out", default=str(ROOT / "output"))
     ap.add_argument("--chunk", type=int, default=100_000, help="test S1s per batch")
+    ap.add_argument("--limit-s1", type=int, default=None,
+                    help="smoke tests only: predict a random subset of test S1s (output is then incomplete)")
     ap.add_argument("--pre-neg-frac", type=float, default=0.3)
-    ap.add_argument("--max-prerank-loss", type=float, default=0.003)
-    ap.add_argument("--save-oof", action="store_true")
+    ap.add_argument("--max-prerank-loss", type=float, default=0.005)
     ap.add_argument("--views", nargs="+", default=list(RetrievalConfig.views))
     for f in fields(RetrievalConfig):
         if f.init and f.name != "views":
