@@ -9,6 +9,10 @@ train on it for submissions.
 Usage:
     python scripts/make_synthetic_data.py --out dataset-synth
     python scripts/run_eda.py --data-root dataset-synth
+
+Multilingual smoke tests: pass --with-devanagari K to append K script-mix
+records (Latin<->Devanagari cross-script positives, Devanagari same-script
+positives, Devanagari distractors). Default 0 leaves output unchanged.
 """
 
 from __future__ import annotations
@@ -24,6 +28,16 @@ CORE = ["Bakery", "Pharmacy", "Auto Parts", "Textiles", "Cafe", "Hotel", "Motors
 SUFFIX = ["Pvt Ltd", "LLC", "Inc", "Corporation", "Co", ""]
 STREETS = ["MG Road", "Park Street", "Main Street", "Gandhi Nagar", "5th Avenue", "Rue de la Paix"]
 CITIES = ["Bengaluru 560001", "Mumbai 400001", "New York 10001", "Austin 73301", "Paris 75001"]
+
+# Script-mix pools for --with-devanagari (fake toy records, plumbing only).
+DEVA_FIRST = ["राम", "श्याम", "मोहन", "आदित्य", "प्रिया", "सुनीता", "विकास", "अनिल"]
+DEVA_CORE = ["मार्केटिंग", "प्रॉपर्टीज", "टेक्सटाइल्स", "फार्मेसी", "होटल", "मोटर्स", "ट्रेडर्स", "बेकरी"]
+DEVA_SUFFIX = ["प्राइवेट लिमिटेड", "लिमिटेड", "एलएलपी", ""]
+LATIN_MIRROR_FIRST = ["Ram", "Shyam", "Mohan", "Aditya", "Priya", "Sunita", "Vikas", "Anil"]
+LATIN_MIRROR_CORE = ["Marketing", "Properties", "Textiles", "Pharmacy", "Hotel", "Motors", "Traders", "Bakery"]
+LATIN_MIRROR_SUFFIX = ["Pvt Ltd", "Ltd", "LLP", ""]
+DEVA_STREETS = ["एमजी रोड", "पार्क स्ट्रीट", "गांधी नगर", "मुख्य मार्ग"]
+DEVA_CITIES = ["बेंगलुरु 560001", "मुंबई 400001", "दिल्ली 110001"]
 
 
 def synth_name(rng: random.Random) -> str:
@@ -48,6 +62,9 @@ def main() -> int:
     ap.add_argument("--out", default="dataset-synth", help="Output dataset root.")
     ap.add_argument("--n-s1", type=int, default=300)
     ap.add_argument("--seed", type=int, default=7)
+    ap.add_argument("--with-devanagari", type=int, default=0,
+                    help="Append K script-mix records (cross-script + same-script "
+                         "Devanagari positives, Devanagari distractors). Default 0.")
     args = ap.parse_args()
     rng = random.Random(args.seed)
 
@@ -84,6 +101,42 @@ def main() -> int:
     for _ in range(120):
         s3_i += 1
         s3_rows.append((f"S3-{s3_i:05d}", synth_name(rng), synth_addr(rng), rng.choice(["US", "India"])))
+
+    # Optional script-mix injection (separate RNG stream: base output is
+    # byte-identical when --with-devanagari 0).
+    n_deva = max(0, int(args.with_devanagari))
+    if n_deva:
+        drng = random.Random(args.seed + 7919)
+        s1_next = args.n_s1
+        for j in range(n_deva):
+            fi, ci, si = (drng.randrange(len(DEVA_FIRST)), drng.randrange(len(DEVA_CORE)),
+                          drng.randrange(len(DEVA_SUFFIX)))
+            deva_name = f"{DEVA_FIRST[fi]} {DEVA_CORE[ci]} {DEVA_SUFFIX[si]}".strip()
+            lat_name = (f"{LATIN_MIRROR_FIRST[fi]} {LATIN_MIRROR_CORE[ci]} "
+                        f"{LATIN_MIRROR_SUFFIX[si]}").strip()
+            deva_addr = (f"{drng.randint(1, 499)} {drng.choice(DEVA_STREETS)}, "
+                         f"{drng.choice(DEVA_CITIES)}")
+            pat = j % 3
+            if pat == 0:  # cross-script positive: Latin S1 <-> Devanagari S2
+                s1_next += 1
+                sid = f"S1-{s1_next:05d}"
+                s1_rows.append((sid, lat_name, synth_addr(drng), "India"))
+                s2_i += 1
+                cid = f"S2-{s2_i:05d}"
+                s2_rows.append((cid, deva_name, deva_addr, "India"))
+                gt_rows.append((sid, cid))
+            elif pat == 1:  # same-script Devanagari positive (exact copy)
+                s1_next += 1
+                sid = f"S1-{s1_next:05d}"
+                s1_rows.append((sid, deva_name, deva_addr, "India"))
+                s2_i += 1
+                cid = f"S2-{s2_i:05d}"
+                s2_rows.append((cid, deva_name, deva_addr, "India"))
+                gt_rows.append((sid, cid))
+            else:  # Devanagari distractor in S2 only (script mix, no match)
+                s2_i += 1
+                cid = f"S2-{s2_i:05d}"
+                s2_rows.append((cid, deva_name, deva_addr, "India"))
 
     cols = ["entity_id", "business_name", "business_address", "country"]
     pd.DataFrame(s1_rows, columns=cols).to_csv(out / "train/train_source1.tsv", sep="\t", index=False)

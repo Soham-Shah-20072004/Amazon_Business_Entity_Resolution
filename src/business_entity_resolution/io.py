@@ -10,8 +10,9 @@ from __future__ import annotations
 import os
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Collection, Dict, List, Optional, Tuple
 
+import numpy as np
 import pandas as pd
 
 from .config import AppConfig
@@ -32,7 +33,7 @@ def read_tsv(
 
     Empty cells become "" (never NaN) so downstream string code is total.
     Raises FileNotFoundError if missing, ValueError on column mismatch when
-    strict_columns=True.
+    strict_columns=True. Uses the C engine (fast on 5M-row tables).
     """
     path = Path(path)
     if not path.exists():
@@ -43,7 +44,6 @@ def read_tsv(
         dtype=str,
         keep_default_na=False,
         na_filter=False,
-        engine="python",
     )
     # Defensive: strip a UTF-8 BOM from the first column name if present.
     df.columns = [c.replace("\ufeff", "") for c in df.columns]
@@ -99,7 +99,7 @@ def load_test_tables(cfg: AppConfig) -> Dict[str, Optional[pd.DataFrame]]:
 
 
 # --------------------------------------------------------------------------
-# ground truth helpers
+# ground truth helpers (scale-safe: no 7.6M pair materialization)
 # --------------------------------------------------------------------------
 
 def parse_matched_list(cell: str) -> List[str]:
@@ -115,50 +115,157 @@ def parse_matched_list(cell: str) -> List[str]:
     return [frag.strip() for frag in text.split(",") if frag.strip()]
 
 
-def expand_ground_truth(
-    gt_df: pd.DataFrame, cols: Dict[str, str]
-) -> Tuple[pd.DataFrame, pd.DataFrame]:
-    """Return (per_s1_stats, positive_pairs).
+def ground_truth_stats(
+    gt_df: Optional[pd.DataFrame], cols: Dict[str, str]
+) -> Tuple[pd.DataFrame, Dict[str, Any]]:
+    """Vectorized per-S1 match counts (one C-speed pass, no pair expansion).
 
-    per_s1_stats: one row per Source-1 entity with n_matches, n_s2, n_s3,
-        singleton / s2_only / s3_only / mixed flags.
-    positive_pairs: one row per (source1_entity_id, candidate_entity_id) with
-        source_pair in {"S1_S2", "S1_S3"}.
+    Returns (gt_stats, summary) where gt_stats has one row per S1 with
+    ``n_matches, n_s2_matches, n_s3_matches`` + singleton/pattern flags, and
+    summary holds corpus totals. Never builds the 7.6M positive-pair table.
+
+    Assumes matched ids carry ``S2-``/``S3-`` prefixes (validated upstream);
+    counts come from ``str.count`` so empty fragments can never inflate them.
     """
     c_s1, c_match = cols["gt_source1"], cols["gt_matched"]
-    gt = gt_df.copy()
-    gt["_matched_list"] = gt[c_s1].astype(str)  # placeholder replaced below
-    gt["_matched_list"] = gt[c_match].map(parse_matched_list)
-    gt["n_matches"] = gt["_matched_list"].map(len)
-    gt["n_s2_matches"] = gt["_matched_list"].map(
-        lambda ids: sum(1 for x in ids if x.startswith("S2-"))
+    empty_stats = pd.DataFrame(
+        columns=[c_s1, "n_matches", "n_s2_matches", "n_s3_matches",
+                 "is_singleton", "is_s2_only", "is_s3_only", "is_mixed"]
     )
-    gt["n_s3_matches"] = gt["_matched_list"].map(
-        lambda ids: sum(1 for x in ids if x.startswith("S3-"))
-    )
-    gt["is_singleton"] = (gt["n_matches"] == 0).astype(int)
-    gt["is_s2_only"] = ((gt["n_s2_matches"] > 0) & (gt["n_s3_matches"] == 0)).astype(int)
-    gt["is_s3_only"] = ((gt["n_s3_matches"] > 0) & (gt["n_s2_matches"] == 0)).astype(int)
-    gt["is_mixed"] = ((gt["n_s2_matches"] > 0) & (gt["n_s3_matches"] > 0)).astype(int)
+    empty_summary: Dict[str, Any] = {
+        "n_s1_in_gt": 0,
+        "n_positive_pairs": 0,
+        "n_s1_s2": 0,
+        "n_s1_s3": 0,
+        "singleton_rate": 0.0,
+        "multi_match_rate": 0.0,
+        "pattern_counts": {},
+        "total_counts": {},
+    }
+    if gt_df is None or gt_df.empty:
+        return empty_stats, empty_summary
+    if c_s1 not in gt_df.columns or c_match not in gt_df.columns:
+        return empty_stats, empty_summary
 
-    rows: List[Dict[str, str]] = []
-    for s1_id, matched in zip(gt[c_s1].astype(str), gt["_matched_list"]):
-        for mid in matched:
-            if mid.startswith("S2-"):
+    s1 = gt_df[c_s1].astype(str)
+    matched = gt_df[c_match].astype(str)
+    # C-speed prefix counts; each matched id contributes exactly one prefix.
+    n_s2 = matched.str.count("S2-").fillna(0).astype(np.int64)
+    n_s3 = matched.str.count("S3-").fillna(0).astype(np.int64)
+    n_matches = (n_s2 + n_s3).astype(np.int64)
+
+    gt_stats = pd.DataFrame({
+        c_s1: s1.to_numpy(),
+        "n_matches": n_matches.to_numpy(),
+        "n_s2_matches": n_s2.to_numpy(),
+        "n_s3_matches": n_s3.to_numpy(),
+    })
+    gt_stats["is_singleton"] = (gt_stats["n_matches"] == 0).astype(np.int64)
+    gt_stats["is_s2_only"] = (
+        (gt_stats["n_s2_matches"] > 0) & (gt_stats["n_s3_matches"] == 0)
+    ).astype(np.int64)
+    gt_stats["is_s3_only"] = (
+        (gt_stats["n_s3_matches"] > 0) & (gt_stats["n_s2_matches"] == 0)
+    ).astype(np.int64)
+    gt_stats["is_mixed"] = (
+        (gt_stats["n_s2_matches"] > 0) & (gt_stats["n_s3_matches"] > 0)
+    ).astype(np.int64)
+
+    n_s1 = int(len(gt_stats))
+    n_pos = int(gt_stats["n_matches"].sum())
+    n_s1_s2 = int(gt_stats["n_s2_matches"].sum())
+    n_s1_s3 = int(gt_stats["n_s3_matches"].sum())
+    n_singleton = int(gt_stats["is_singleton"].sum())
+
+    def _bucket(n: int) -> str:
+        if n == 0:
+            return "0 matches"
+        if n == 1:
+            return "1 match"
+        if n == 2:
+            return "2 matches"
+        if n == 3:
+            return "3 matches"
+        return "4+ matches"
+
+    total_counts = gt_stats["n_matches"].map(_bucket).value_counts().to_dict()
+    pattern = np.select(
+        [gt_stats["is_singleton"] == 1, gt_stats["is_s2_only"] == 1,
+         gt_stats["is_s3_only"] == 1, gt_stats["is_mixed"] == 1],
+        ["singleton (no match)", "S2-only", "S3-only", "mixed S2+S3"],
+        default="other",
+    )
+    pattern_counts = pd.Series(pattern).value_counts().to_dict()
+
+    summary = {
+        "n_s1_in_gt": n_s1,
+        "n_positive_pairs": n_pos,
+        "n_s1_s2": n_s1_s2,
+        "n_s1_s3": n_s1_s3,
+        "singleton_rate": float(n_singleton / n_s1) if n_s1 else 0.0,
+        "multi_match_rate": float((gt_stats["n_matches"] >= 2).mean()) if n_s1 else 0.0,
+        "pattern_counts": {str(k): int(v) for k, v in pattern_counts.items()},
+        "total_counts": {str(k): int(v) for k, v in total_counts.items()},
+    }
+    return gt_stats, summary
+
+
+def parse_anchor_truth(
+    gt_df: Optional[pd.DataFrame],
+    anchors: Collection[str],
+    cols: Dict[str, str],
+) -> Dict[str, List[str]]:
+    """Parse ground truth ONLY for a small anchor set (sampled, closed world).
+
+    Filters the 2.2M-row truth table to ``anchors`` via a vectorized ``isin``,
+    then parses just those cells. Every anchor gets an entry (``[]`` when the
+    S1 has no row or no matches) so callers can treat absence as singleton.
+    """
+    c_s1, c_match = cols["gt_source1"], cols["gt_matched"]
+    anchor_list = sorted({str(a) for a in (anchors or []) if str(a)})
+    out: Dict[str, List[str]] = {a: [] for a in anchor_list}
+    if gt_df is None or gt_df.empty or not anchor_list:
+        return out
+    if c_s1 not in gt_df.columns or c_match not in gt_df.columns:
+        return out
+    anchor_set = set(anchor_list)
+    try:
+        mask = gt_df[c_s1].astype(str).isin(anchor_set)
+    except Exception:
+        return out
+    sub = gt_df.loc[mask, [c_s1, c_match]]
+    if sub.empty:
+        return out
+    for s1_id, cell in zip(
+        sub[c_s1].astype(str).tolist(), sub[c_match].astype(str).tolist()
+    ):
+        out[str(s1_id)] = parse_matched_list(cell)
+    return out
+
+
+def anchor_truth_to_basic(
+    anchor_truth: Dict[str, List[str]],
+) -> pd.DataFrame:
+    """Convert a SMALL anchor-truth dict to a basic pair table.
+
+    Output columns: [source1_entity_id, candidate_entity_id, source_pair].
+    Sorted by (s1, candidate) for deterministic artifacts.
+    """
+    rows: List[Tuple[str, str, str]] = []
+    for s1_id in sorted(anchor_truth.keys()):
+        for mid in anchor_truth[s1_id]:
+            m = str(mid)
+            if m.startswith("S2-"):
                 pair = "S1_S2"
-            elif mid.startswith("S3-"):
+            elif m.startswith("S3-"):
                 pair = "S1_S3"
             else:
-                pair = "S1_OTHER"  # unexpected prefix — flagged by validation
-            rows.append(
-                {
-                    "source1_entity_id": s1_id,
-                    "candidate_entity_id": mid,
-                    "source_pair": pair,
-                }
-            )
-    positives = pd.DataFrame(rows, columns=["source1_entity_id", "candidate_entity_id", "source_pair"])
-    return gt, positives
+                pair = "S1_OTHER"
+            rows.append((str(s1_id), m, pair))
+    rows.sort()
+    return pd.DataFrame(
+        rows, columns=["source1_entity_id", "candidate_entity_id", "source_pair"]
+    )
 
 
 # --------------------------------------------------------------------------

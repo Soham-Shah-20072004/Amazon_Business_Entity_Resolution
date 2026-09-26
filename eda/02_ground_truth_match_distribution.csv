@@ -1,17 +1,20 @@
 breakdown,category,n_s1,pct_of_s1
-total_matches,1 match,114,0.38
-total_matches,0 matches,100,0.333333
-total_matches,2 matches,59,0.196667
-total_matches,3 matches,27,0.09
-s2_matches,0 matches,173,0.576667
-s2_matches,1 match,96,0.32
-s2_matches,2 matches,30,0.1
-s2_matches,3 matches,1,0.003333
-s3_matches,0 matches,182,0.606667
-s3_matches,1 match,87,0.29
-s3_matches,2 matches,26,0.086667
-s3_matches,3 matches,5,0.016667
-match_pattern,singleton (no match),100,0.333333
-match_pattern,S2-only,82,0.273333
-match_pattern,S3-only,73,0.243333
-match_pattern,mixed S2+S3,45,0.15
+total_matches,4+ matches,1058364,0.479588
+total_matches,3 matches,530841,0.240546
+total_matches,2 matches,375212,0.170024
+total_matches,0 matches,123247,0.055848
+total_matches,1 match,119157,0.053995
+s2_matches,1 match,789108,0.357577
+s2_matches,2 matches,652779,0.295801
+s2_matches,3 matches,333957,0.151329
+s2_matches,0 matches,287745,0.130389
+s2_matches,4+ matches,143232,0.064904
+s3_matches,1 match,716417,0.324638
+s3_matches,2 matches,668375,0.302868
+s3_matches,3 matches,372443,0.168769
+s3_matches,0 matches,266276,0.12066
+s3_matches,4+ matches,183310,0.083065
+match_pattern,mixed S2+S3,1776047,0.804799
+match_pattern,S3-only,164498,0.074541
+match_pattern,S2-only,143029,0.064812
+match_pattern,singleton (no match),123247,0.055848

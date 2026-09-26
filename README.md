@@ -137,10 +137,42 @@ Deterministic via fixed seeds (`config/config.yaml: eda.random_seed`); offline.
 | `eda/08_country_shift_report.csv` | per-country stats + char/token coverage vs train vocab |
 | `eda/09_candidate_graph_diagnostics.csv` | degrees, hubs, components of the bipartite candidate graph |
 | `eda/10_casebook_train_pairs.html` | sortable/filterable difficult-pair review (self-contained) |
-| `eda/figures/*.png` | audit, match counts, ECDFs, 2-D scatter, heatmaps, frontier, degrees |
+| `eda/11_script_distribution.csv` | FULL-data script mix (Latin/Devanagari/Cyrillic/Arabic/mixed/…) per source × field |
+| `eda/12_transliteration_collision_report.csv` | SAMPLED raw-vs-norm-vs-transliterated uniqueness + cross-script groups |
+| `eda/13_cross_script_positive_pairs.csv` | cross-script positives by source-pair × country × script-pair + translit agreement |
+| `eda/14_character_statistics.csv` | per table × country char stats, script shares, trigram vocab (FULL `n`, SAMPLED stats) |
+| `eda/15_token_assumption_audit.csv` | word/token-feature behavior by script bucket × class (suffix/stopword overlap measured) |
+| `eda/16_char_ngram_comparison.csv` | word-token vs char-n-gram similarity by script bucket + hard/random negatives |
+| `eda/figures/*.png` | audit, match counts, ECDFs, 2-D scatter, heatmaps, frontier, degrees, script/translit/ngram |
 | `reports/eda_summary.md` | **Finding → Evidence → Implication** per section + next-stage decisions |
 
 Open the casebook by double-clicking the HTML file (works offline — no CDNs).
+
+### Multilingual / multi-script (§28)
+
+Raw Unicode is always preserved; transliteration is an **additional feature only, never
+canonical**. The pipeline measures script mix (11), character load (14), transliteration
+recall-vs-risk (12/13), token-assumption behavior across scripts (15, no stopword/suffix
+stripping defaults), and word-vs-char-n-gram tradeoffs (16) — then keeps every
+representation side by side. Backend: `config/config.yaml: eda.multilingual`
+(`auto` = Unidecode when installed, else deterministic builtin; `none` skips
+transliteration). Smoke-test with non-Latin data:
+`python scripts/make_synthetic_data.py --out dataset-dev --with-devanagari 60`.
+
+### Scale & sampling (why EDA stays fast on 2.2M S1 / 7.6M pairs)
+
+- **FULL-data:** audit (01), ground-truth counts (02, vectorized), raw + conservative
+  collisions (05), country counts + missing rates (08), script distribution (11),
+  character-stat denominators (14 `n` + non-ASCII rates).
+- **SAMPLED (closed world, forced truth):** positive features (03), hard negatives (04),
+  aggressive collisions (05 `aggr_*__sample*` rows), blocking (06/07), country string-stats
+  + vocab coverage (08 `n_sampled`), graph (09), transliteration collisions (12),
+  character stats (14 `n_sampled`), cross-script positives (13), token audit (15),
+  char-n-gram comparison (16). Sampled pools always contain every anchor's
+  true matches; every sampled artifact records its sample size.
+- Sizes live in `config/config.yaml: eda.sampling`; `reports/eda_summary.md` has a
+  **Sampling & scale** disclosure section. Quick smoke run:
+  `python scripts/run_eda.py --data-root dataset --fast-mode` (~5x smaller samples).
 
 ## 8–10. Experiment logging workflow (3 people / 3 days / 5 submissions)
 

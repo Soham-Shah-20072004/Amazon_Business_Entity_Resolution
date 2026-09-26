@@ -1,60 +1,69 @@
 section,group,metric,value
-s1_degree,all,n_s1,300
-s1_degree,all,mean,155.57
-s1_degree,all,p50,153.5
-s1_degree,all,p95,191.0
-s1_degree,all,max,198
+s1_degree,all,n_s1,1600
+s1_degree,all,mean,97.83
+s1_degree,all,p50,97.0
+s1_degree,all,p95,103.0
+s1_degree,all,max,121
 s1_degree,all,n_zero,0
-cand_degree,all,n_candidates_with_edges,553
-cand_degree,all,n_pool_total,553
-cand_degree,all,mean,84.396
-cand_degree,all,p95,108.0
-cand_degree,all,max,132
-edges,all,n_edges,46671
+cand_degree,all,n_candidates_with_edges,45128
+cand_degree,all,n_pool_total,55576
+cand_degree,all,mean,3.469
+cand_degree,all,p95,9.0
+cand_degree,all,max,85
+edges,all,n_edges,156528
 edges,all,truncated_s1_for_graph,0
-s1_degree_by_country,India,mean,154.736
-s1_degree_by_country,India,max,198
-s1_degree_by_country,US,mean,156.3
-s1_degree_by_country,US,max,198
-cand_degree_by_source,S2,mean,84.835
-cand_degree_by_source,S2,max,132
-cand_degree_by_source,S3,mean,83.949
-cand_degree_by_source,S3,max,132
-cand_degree_by_country,India,mean,85.537
-cand_degree_by_country,India,max,128
-cand_degree_by_country,US,mean,83.391
-cand_degree_by_country,US,max,132
-hub_candidate,S3-00076,degree=132 src=S3 country=US,Sunrise Traders Co
-hub_candidate,S2-00164,degree=132 src=S2 country=US,Sunrise Cafe LLC
-hub_candidate,S3-00106,degree=128 src=S3 country=India,Royal Hotel LLC
-hub_candidate,S3-00014,degree=128 src=S3 country=India,Green Hotel LLC
-hub_candidate,S2-00119,degree=128 src=S2 country=India,Royal Hotel LLC
-hub_candidate,S3-00105,degree=128 src=S3 country=India,Royal Hotel LLC
-hub_candidate,S3-00116,degree=127 src=S3 country=India,City Motors Corporation
-hub_candidate,S3-00011,degree=126 src=S3 country=US,Royal Traders Co
-hub_candidate,S2-00187,degree=119 src=S2 country=India,National Bakery Corporation
-hub_candidate,S3-00187,degree=117 src=S3 country=India,Lucky Hotel
-hub_candidate,S2-00199,degree=117 src=S2 country=US,Metro Traders Inc
-hub_candidate,S2-00159,degree=116 src=S2 country=US,Royal Motors Inc
-hub_candidate,S3-00154,degree=115 src=S3 country=India,National Cafe LLC
-hub_candidate,S2-00027,degree=114 src=S2 country=US,National Bakery Inc
-hub_candidate,S2-00201,degree=113 src=S2 country=India,City Traders Inc
-hub_candidate,S3-00026,degree=113 src=S3 country=US,City Bakery Corporation
-hub_candidate,S3-00040,degree=112 src=S3 country=India,Lucky Cafe Co
-hub_candidate,S2-00096,degree=112 src=S2 country=US,City Cafe Corporation
-hub_candidate,S3-00234,degree=110 src=S3 country=US,Sunrise Motors
-hub_candidate,S2-00171,degree=110 src=S2 country=India,Lucky Traders Corporation
-hub_s1,S1-00176,degree=198 country=US,
-hub_s1,S1-00058,degree=198 country=India,
-hub_s1,S1-00290,degree=195 country=US,
-hub_s1,S1-00138,degree=194 country=India,
-hub_s1,S1-00265,degree=194 country=US,
-hub_s1,S1-00140,degree=193 country=US,
-hub_s1,S1-00027,degree=193 country=US,
-hub_s1,S1-00076,degree=192 country=US,
-hub_s1,S1-00213,degree=192 country=India,
-hub_s1,S1-00179,degree=192 country=US,
-components,all,n_components,1
-components,all,largest_component_nodes,853
-components,all,singleton_components,0
-components,rank_1,size_nodes,853
+s1_degree_by_country,India,mean,97.89
+s1_degree_by_country,India,max,121
+s1_degree_by_country,US,mean,97.791
+s1_degree_by_country,US,max,119
+cand_degree_by_source,S2,mean,3.817
+cand_degree_by_source,S2,max,85
+cand_degree_by_source,S3,mean,3.114
+cand_degree_by_source,S3,max,71
+cand_degree_by_country,India,mean,4.008
+cand_degree_by_country,India,max,85
+cand_degree_by_country,US,mean,3.155
+cand_degree_by_country,US,max,35
+hub_candidate,S2-440560815,degree=85 src=S2 country=India,... Systems Whedte Landmarks Private Limited
+hub_candidate,S2-126853018,degree=83 src=S2 country=India,वन Services
+hub_candidate,S2-712416068,degree=76 src=S2 country=India,JXS (I) Private Limited
+hub_candidate,S2-111437806,degree=74 src=S2 country=India,बाबा टेक्नोलॉजीज प्रा. लि.
+hub_candidate,S2-224632435,degree=72 src=S2 country=India,Private Smart S0lutions Ltd
+hub_candidate,S2-41429190,degree=72 src=S2 country=India,Private Cyber Trading Limited
+hub_candidate,S3-117230826,degree=71 src=S3 country=India,PLP (India)Private Limited Private
+hub_candidate,S2-256460788,degree=69 src=S2 country=India,भारत सनराइज मीडिया इलेक्ट्रॉनिक्स प्राइवेट लिमिटेड
+hub_candidate,S3-194747413,degree=68 src=S3 country=India,NXD India  Private Limited
+hub_candidate,S2-777367386,degree=67 src=S2 country=India,Private FQ India Limited
+hub_candidate,S2-604473031,degree=60 src=S2 country=India,अरिहंत श्याम मीडिया एलएलपी
+hub_candidate,S2-942530516,degree=58 src=S2 country=India,ominvestment.com
+hub_candidate,S2-658559868,degree=57 src=S2 country=India,ਸਨਰਾਈਜ਼ ਐਂਟਰਪ੍ਰਾਈਜ਼ਿਜ਼ Private Limited
+hub_candidate,S2-776717772,degree=57 src=S2 country=India,Vbdargha Web LLP
+hub_candidate,S2-542766560,degree=57 src=S2 country=India,& Gurukripa Company
+hub_candidate,S3-707646820,degree=56 src=S3 country=India,QLQ Fra  Private Limited
+hub_candidate,S2-174319806,degree=55 src=S2 country=India,यूनिक डिजिटल प्रोडक्ट्स टेक्नोलॉजीज प्राइवेट लिमिटेड
+hub_candidate,S2-344027832,degree=55 src=S2 country=India,बिग न्यू एनर्जी प्राइवेट लिमिटेड
+hub_candidate,S2-669953458,degree=55 src=S2 country=India,रियल कंसल्टेंसी प्राइवेट लिमिटेड
+hub_candidate,S2-134654785,degree=55 src=S2 country=India,साउथ कंसल्टेंसी लिमिटेड
+hub_s1,S1-235238695,degree=121 country=India,
+hub_s1,S1-944458041,degree=119 country=US,
+hub_s1,S1-433641968,degree=118 country=US,
+hub_s1,S1-990046472,degree=116 country=US,
+hub_s1,S1-657731512,degree=116 country=US,
+hub_s1,S1-817995330,degree=116 country=US,
+hub_s1,S1-150804393,degree=115 country=US,
+hub_s1,S1-40583445,degree=115 country=India,
+hub_s1,S1-867567064,degree=113 country=US,
+hub_s1,S1-462380380,degree=113 country=India,
+components,all,n_components,10449
+components,all,largest_component_nodes,46728
+components,all,singleton_components,10448
+components,rank_1,size_nodes,46728
+components,rank_2,size_nodes,1
+components,rank_3,size_nodes,1
+components,rank_4,size_nodes,1
+components,rank_5,size_nodes,1
+components,rank_6,size_nodes,1
+components,rank_7,size_nodes,1
+components,rank_8,size_nodes,1
+components,rank_9,size_nodes,1
+components,rank_10,size_nodes,1

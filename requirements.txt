@@ -10,7 +10,10 @@ scikit-learn==1.5.1
 rapidfuzz==3.9.1
 PyYAML==6.0.1
 jupyter==1.0.0
-# Stage 2+: matching pipeline
+# Stage 2+: matching pipeline. Unidecode is required by the pipeline
+# (the EDA's section-28 transliteration study also auto-detects it).
 lightgbm==4.5.0
 Unidecode==1.3.8
 pyarrow==17.0.0
+polars==1.9.0
+faiss-cpu==1.8.0.post1

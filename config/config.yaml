@@ -38,6 +38,39 @@ id_prefixes:
 
 eda:
   random_seed: 42
+  # When true (or --fast-mode), all sampling sizes below are divided ~5x
+  # (floor 500) for a quick smoke run. See scripts/run_eda.py.
+  fast_mode: false
+
+  # ---- Scale & sampling (Stage 1 scale rework) ----
+  # FULL-data sections: audit, ground-truth counts, raw + conservative
+  # collisions, country counts / missing rates.
+  # SAMPLED sections: positive features, hard negatives, blocking, graph,
+  # vocab overlap, aggressive-norm collisions. Every sampled artifact records
+  # its sample size; reports/eda_summary.md discloses full vs sampled.
+  sampling:
+    n_positive_s1: 10000            # S1 anchors sampled for positive features
+    max_positive_pairs: 30000       # cap on featurized positive pairs
+    n_negative_match_anchors: 3000  # S1 anchors WITH matches for negatives
+    n_negative_singleton_anchors: 2000  # singleton S1 anchors for negatives
+    retrieval_pool_sample: 150000   # candidate pool sample for hard negatives
+    n_blocking_s1: 8000             # S1 anchors sampled for blocking diagnostics
+    blocking_pool_sample: 250000    # candidate pool sample for blocking
+    country_shift_per_group: 20000  # rows sampled per table x country for string stats + vocab
+    collision_aggressive_sample: 1000000  # rows sampled per table for aggressive-norm collisions
+    transliteration_sample: 500000  # rows sampled per table for the transliteration collision study (12)
+
+  # ---- Multilingual / multi-script EDA (§28) ----
+  # Transliteration is an ADDITIONAL feature for comparison, never canonical.
+  # backend: auto (Unidecode when installed, else builtin) | unidecode |
+  #          builtin (deterministic, dependency-free) | none (skip transliteration)
+  multilingual:
+    transliteration_backend: "auto"
+    # Agreement thresholds used to *count* transliteration behavior on sampled
+    # pairs (casebook + audits). Not match rules.
+    translit_helpful_threshold: 0.8   # below this on positives = disagreement case
+    translit_dangerous_threshold: 0.9 # at/above this on hard negatives = false-merge risk
+    char_ngram_granularities: [[2, 3, 4], [3, 4, 5], [3, 4, 5, 6]]
 
   # ---- Negative sampling (Stage 1 diagnostics) ----
   negatives:
@@ -54,11 +87,11 @@ eda:
     analyzer: "char_wb"
     ngram_min: 3
     ngram_max: 5
-    max_features: 60000
+    max_features: 30000
     sublinear_tf: true
     name_topk: [20, 50]
     address_topk: [20, 50]
-    query_chunk_size: 2000   # S1 queries scored per chunk (bounds memory)
+    query_chunk_size: 256   # S1 queries scored per chunk (bounds memory)
     rare_token_max_df: 25    # a name token is "rare" if seen in <= this many records
     rare_token_min_len: 4    # ignore very short tokens for the rare-token blocker
 

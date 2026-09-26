@@ -1,0 +1,85 @@
+source,field,script_category,row_count,percentage
+train_source1,business_name,Latin,2206821,1.0
+train_source1,business_name,Devanagari,0,0.0
+train_source1,business_name,Cyrillic,0,0.0
+train_source1,business_name,Arabic,0,0.0
+train_source1,business_name,mixed,0,0.0
+train_source1,business_name,other Unicode,0,0.0
+train_source1,business_name,empty/missing,0,0.0
+train_source1,business_address,Latin,2206807,0.999994
+train_source1,business_address,Devanagari,0,0.0
+train_source1,business_address,Cyrillic,0,0.0
+train_source1,business_address,Arabic,0,0.0
+train_source1,business_address,mixed,14,6e-06
+train_source1,business_address,other Unicode,0,0.0
+train_source1,business_address,empty/missing,0,0.0
+train_source2,business_name,Latin,4560271,0.905783
+train_source2,business_name,Devanagari,258863,0.051417
+train_source2,business_name,Cyrillic,0,0.0
+train_source2,business_name,Arabic,0,0.0
+train_source2,business_name,mixed,18586,0.003692
+train_source2,business_name,other Unicode,196896,0.039108
+train_source2,business_name,empty/missing,0,0.0
+train_source2,business_address,Latin,4388106,0.871587
+train_source2,business_address,Devanagari,0,0.0
+train_source2,business_address,Cyrillic,0,0.0
+train_source2,business_address,Arabic,0,0.0
+train_source2,business_address,mixed,477543,0.094852
+train_source2,business_address,other Unicode,0,0.0
+train_source2,business_address,empty/missing,168967,0.033561
+train_source3,business_name,Latin,5007079,0.947305
+train_source3,business_name,Devanagari,138187,0.026144
+train_source3,business_name,Cyrillic,0,0.0
+train_source3,business_name,Arabic,0,0.0
+train_source3,business_name,mixed,34894,0.006602
+train_source3,business_name,other Unicode,105443,0.019949
+train_source3,business_name,empty/missing,0,0.0
+train_source3,business_address,Latin,4633896,0.876701
+train_source3,business_address,Devanagari,46,9e-06
+train_source3,business_address,Cyrillic,0,0.0
+train_source3,business_address,Arabic,0,0.0
+train_source3,business_address,mixed,475704,0.09
+train_source3,business_address,other Unicode,41,8e-06
+train_source3,business_address,empty/missing,175916,0.033282
+test_source1,business_name,Latin,1732544,1.0
+test_source1,business_name,Devanagari,0,0.0
+test_source1,business_name,Cyrillic,0,0.0
+test_source1,business_name,Arabic,0,0.0
+test_source1,business_name,mixed,0,0.0
+test_source1,business_name,other Unicode,0,0.0
+test_source1,business_name,empty/missing,0,0.0
+test_source1,business_address,Latin,1732537,0.999996
+test_source1,business_address,Devanagari,0,0.0
+test_source1,business_address,Cyrillic,0,0.0
+test_source1,business_address,Arabic,0,0.0
+test_source1,business_address,mixed,7,4e-06
+test_source1,business_address,other Unicode,0,0.0
+test_source1,business_address,empty/missing,0,0.0
+test_source2,business_name,Latin,4340667,0.888157
+test_source2,business_name,Devanagari,297604,0.060894
+test_source2,business_name,Cyrillic,0,0.0
+test_source2,business_name,Arabic,0,0.0
+test_source2,business_name,mixed,20556,0.004206
+test_source2,business_name,other Unicode,228446,0.046743
+test_source2,business_name,empty/missing,0,0.0
+test_source2,business_address,Latin,4195395,0.858433
+test_source2,business_address,Devanagari,0,0.0
+test_source2,business_address,Cyrillic,0,0.0
+test_source2,business_address,Arabic,0,0.0
+test_source2,business_address,mixed,562470,0.115089
+test_source2,business_address,other Unicode,0,0.0
+test_source2,business_address,empty/missing,129408,0.026479
+test_source3,business_name,Latin,4761677,0.936911
+test_source3,business_name,Devanagari,158605,0.031207
+test_source3,business_name,Cyrillic,0,0.0
+test_source3,business_name,Arabic,0,0.0
+test_source3,business_name,mixed,39860,0.007843
+test_source3,business_name,other Unicode,122174,0.024039
+test_source3,business_name,empty/missing,0,0.0
+test_source3,business_address,Latin,4383913,0.862582
+test_source3,business_address,Devanagari,57,1.1e-05
+test_source3,business_address,Cyrillic,0,0.0
+test_source3,business_address,Arabic,0,0.0
+test_source3,business_address,mixed,562206,0.11062
+test_source3,business_address,other Unicode,42,8e-06
+test_source3,business_address,empty/missing,136098,0.026779
