@@ -7,7 +7,7 @@
 # Optional env: TAG (Stage B tag, default m1), MODEL (Hugging Face id), EPOCHS (default 2)
 set -euo pipefail
 cd "$(dirname "$0")/../.."
-pip install -q lightgbm rapidfuzz unidecode 2>&1 | grep -v -i "warning\|notice" || true
+pip install -q lightgbm rapidfuzz unidecode polars 2>&1 | grep -v -i "warning\|notice" || true
 nvidia-smi --query-gpu=name,memory.total --format=csv || true
 TAG=${TAG:-m1}
 

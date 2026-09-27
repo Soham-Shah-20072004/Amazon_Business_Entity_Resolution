@@ -16,3 +16,5 @@ lightgbm==4.5.0
 Unidecode==1.3.8
 pyarrow==17.0.0
 faiss-cpu==1.8.0.post1
+# optional: multi-threaded group ranks (pandas fallback gives identical numbers)
+polars>=1.0

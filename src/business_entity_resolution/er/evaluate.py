@@ -9,6 +9,11 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+try:
+    import polars as pl
+except ImportError:
+    pl = None
+
 
 def _in_sorted(sorted_keys: np.ndarray, x: np.ndarray) -> np.ndarray:
     if len(sorted_keys) == 0:
@@ -74,13 +79,21 @@ def tune(df: pd.DataFrame, queries, ti, tj, n, per_source=False, prob="p",
     return pd.DataFrame(rows).sort_values("macro_f05", ascending=False).reset_index(drop=True)
 
 
+def rank_in_list(df: pd.DataFrame, col: str) -> np.ndarray:
+    """1 = highest `col` within each S1 (column i); ties by order of appearance,
+    as pandas method="first". Polars when installed (multi-threaded), same result."""
+    if pl is not None:
+        return (pl.DataFrame({"i": df["i"].to_numpy(), "v": df[col].to_numpy()})
+                .select(pl.col("v").rank("ordinal", descending=True).over("i")).to_series().to_numpy())
+    return df.groupby("i", sort=False)[col].rank(ascending=False, method="first").to_numpy()
+
+
 def focus_set(df: pd.DataFrame, min_p: float, top_k: int, prob: str = "p") -> np.ndarray:
     """Cascade step: keep pairs whose first-stage matcher probability is at least
     min_p and that rank in the top_k of their S1. Pairs below ~1% are never
     predicted anyway (thresholds sit near 0.5), so this only shrinks the set the
     next model (and candidate_pairs.tsv) has to cover."""
-    rank = df.groupby("i", sort=False)[prob].rank(ascending=False, method="first").to_numpy()
-    return (df[prob].to_numpy() >= min_p) & (rank <= top_k)
+    return (df[prob].to_numpy() >= min_p) & (rank_in_list(df, prob) <= top_k)
 
 
 def slice_report(scores: np.ndarray, slices: dict[str, np.ndarray]) -> pd.DataFrame:

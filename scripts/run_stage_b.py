@@ -75,8 +75,7 @@ def retrieve(args, cfg, split_name, s1_sample):
 
 
 def prerank_keep(df: pd.DataFrame, t_pre: float, k_pre: int) -> np.ndarray:
-    rank = df.groupby("i", sort=False)["pre_p"].rank(ascending=False, method="first").to_numpy()
-    return (df["pre_p"].to_numpy() >= t_pre) & (rank <= k_pre)
+    return (df["pre_p"].to_numpy() >= t_pre) & (E.rank_in_list(df, "pre_p") <= k_pre)
 
 
 def label(split, df: pd.DataFrame) -> np.ndarray:

@@ -11,7 +11,7 @@ if command -v nvidia-smi >/dev/null && nvidia-smi >/dev/null 2>&1; then
 else
   FAISS=faiss-cpu
 fi
-pip install -q $FAISS unidecode rapidfuzz 2>&1 | grep -v -i "warning\|notice" || true
+pip install -q $FAISS unidecode rapidfuzz polars 2>&1 | grep -v -i "warning\|notice" || true
 
 S1=$(find -L /kaggle/input -name train_source1.tsv 2>/dev/null | head -1 || true)
 if [ -z "$S1" ]; then
