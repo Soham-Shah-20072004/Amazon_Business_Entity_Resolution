@@ -14,7 +14,7 @@ first_existing() { while read -r p; do [ -f "$p" ] && { echo "$p"; return; }; do
 PAIRS=$(find -L /kaggle/input -path "*models/$TAG/train_pairs.parquet" 2>/dev/null | first_existing || true)
 TRAIN_REC=$(find -L /kaggle/input -path "*work/train/records.parquet" 2>/dev/null | first_existing || true)
 TEST_REC=$(find -L /kaggle/input -path "*work/test/records.parquet" 2>/dev/null | first_existing || true)
-CE_TRAIN=$(find -L /kaggle/input -path "*ce_out/ce_train.parquet" 2>/dev/null | first_existing || true)
+CE_TRAIN=$(find -L /kaggle/input -name ce_train.parquet 2>/dev/null | first_existing || true)   # notebook output or uploaded dataset
 TEST_DIR=$(dirname "$(find -L /kaggle/input -name test_source1.tsv 2>/dev/null | head -1)")
 for v in PAIRS TRAIN_REC TEST_REC; do
   [ -n "${!v}" ] || { echo "missing input for $v - attach the Stage A and Stage B notebooks"; exit 1; }
