@@ -34,6 +34,12 @@ import pyarrow.parquet as pq
 T0 = time.time()
 
 
+def focus_set(df: pd.DataFrame, min_p: float, top_k: int) -> np.ndarray:
+    """Same rule as er.evaluate.focus_set (kept local so this script runs standalone)."""
+    rank = df.groupby("i", sort=False)["p"].rank(ascending=False, method="first").to_numpy()
+    return (df["p"].to_numpy() >= min_p) & (rank <= top_k)
+
+
 def log(msg: str) -> None:
     print(f"[{time.strftime('%H:%M:%S')} +{(time.time() - T0) / 60:5.1f}m] {msg}", flush=True)
 
@@ -148,6 +154,8 @@ def main() -> None:
     ap.add_argument("--lr", type=float, default=3e-5)
     ap.add_argument("--infer-bs", type=int, default=512)
     ap.add_argument("--folds", type=int, default=2)
+    ap.add_argument("--min-p", type=float, default=0.01, help="focus set: first-stage p threshold")
+    ap.add_argument("--top-k", type=int, default=8, help="focus set: max pairs per S1")
     ap.add_argument("--limit-train", type=int, default=None, help="smoke test: use N train pairs")
     ap.add_argument("--limit-test", type=int, default=None, help="smoke test: score N test pairs")
     args = ap.parse_args()
@@ -159,11 +167,18 @@ def main() -> None:
     out.mkdir(parents=True, exist_ok=True)
     pdir = Path(args.pairs_dir)
 
-    tr = pd.read_parquet(pdir / "train_pairs.parquet", columns=["i", "j", "label"])
+    tr = pd.read_parquet(pdir / "train_pairs.parquet", columns=["i", "j", "label", "p"])
+    n_pos = int(tr["label"].sum())
+    tr = tr[focus_set(tr, args.min_p, args.top_k)].reset_index(drop=True)
+    log(f"focus set (p >= {args.min_p}, top {args.top_k}/S1) keeps {tr['label'].sum() / max(1, n_pos):.4f} "
+        f"of the train positives")
     if args.limit_train:
         tr = tr.sample(min(args.limit_train, len(tr)), random_state=0).reset_index(drop=True)
-    te = pd.concat([pd.read_parquet(f, columns=["i", "j"]) for f in sorted((pdir / "test_pairs").glob("part-*.parquet"))],
+    te = pd.concat([pd.read_parquet(f, columns=["i", "j", "p"]) for f in sorted((pdir / "test_pairs").glob("part-*.parquet"))],
                    ignore_index=True)
+    n_te = len(te)
+    te = te[focus_set(te, args.min_p, args.top_k)].reset_index(drop=True)
+    log(f"test focus set: {len(te):,} of {n_te:,} pairs")
     if args.limit_test:
         te = te.head(args.limit_test)
     log(f"train pairs {len(tr):,} (positives {tr['label'].mean():.1%}), test pairs {len(te):,}")

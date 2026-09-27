@@ -74,6 +74,15 @@ def tune(df: pd.DataFrame, queries, ti, tj, n, per_source=False, prob="p",
     return pd.DataFrame(rows).sort_values("macro_f05", ascending=False).reset_index(drop=True)
 
 
+def focus_set(df: pd.DataFrame, min_p: float, top_k: int, prob: str = "p") -> np.ndarray:
+    """Cascade step: keep pairs whose first-stage matcher probability is at least
+    min_p and that rank in the top_k of their S1. Pairs below ~1% are never
+    predicted anyway (thresholds sit near 0.5), so this only shrinks the set the
+    next model (and candidate_pairs.tsv) has to cover."""
+    rank = df.groupby("i", sort=False)[prob].rank(ascending=False, method="first").to_numpy()
+    return (df[prob].to_numpy() >= min_p) & (rank <= top_k)
+
+
 def slice_report(scores: np.ndarray, slices: dict[str, np.ndarray]) -> pd.DataFrame:
     """points_lost = share of the total score (out of 100) each slice costs."""
     n = len(scores)

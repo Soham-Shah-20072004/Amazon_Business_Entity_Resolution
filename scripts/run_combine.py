@@ -63,17 +63,23 @@ def main() -> None:
     ap.add_argument("--test-dir", default=None, help="raw test TSVs, for the submission check")
     ap.add_argument("--out", default=str(ROOT / "output"))
     ap.add_argument("--per-source", action="store_true", help="tune separate S2 / S3 thresholds")
+    ap.add_argument("--min-p", type=float, default=0.01, help="focus set: first-stage p threshold")
+    ap.add_argument("--top-k", type=int, default=8, help="focus set: max pairs per S1")
     ap.add_argument("--workers", type=int, default=default_workers())
     args = ap.parse_args()
 
     pdir = Path(args.pairs_dir)
     meta = json.loads((pdir / "meta.json").read_text())
     tr = pd.read_parquet(pdir / "train_pairs.parquet")
+    n_pos = int(tr["label"].sum())
+    tr = tr[E.focus_set(tr, args.min_p, args.top_k)].reset_index(drop=True)
     q = np.load(pdir / "queries.npy")
     truth = pd.read_parquet(pdir / "truth.parquet")
     ti, tj = truth["i"].to_numpy(), truth["j"].to_numpy()
     n = int(max(tr["i"].max(), tr["j"].max(), ti.max(), tj.max())) + 1
 
+    log(f"focus set (p >= {args.min_p}, top {args.top_k}/S1): {len(tr) / len(q):.2f} pairs/S1, "
+        f"keeps {tr['label'].sum() / max(1, n_pos):.4f} of the Stage B train positives")
     base = E.tune(tr, q, ti, tj, n, per_source=args.per_source, prob="p").iloc[0]
     log(f"Stage B matcher (OOF): macro F0.5 {base['macro_f05']:.4f}")
 
@@ -95,6 +101,7 @@ def main() -> None:
     parts = []
     for f in sorted((pdir / "test_pairs").glob("part-*.parquet")):
         te = pd.read_parquet(f)
+        te = te[E.focus_set(te, args.min_p, args.top_k)].reset_index(drop=True)
         if extra_te is not None:
             lo, hi = te["i"].min(), te["i"].max()
             te, _ = add_extra(te, extra_te[(extra_te["i"] >= lo) & (extra_te["i"] <= hi)])
