@@ -4,6 +4,8 @@
 #   bash ber/scripts/kaggle/stage_b.sh           # full run (use "Save & Run All")
 # Optional env: TAG (default m1), S1_SAMPLE (default 60000), VIEWS (e.g. "full addr skel"),
 #               NPROBE (IVF cells searched, default 32; lower = faster, higher = better recall)
+#               B_ARGS extra retrieval flags for train AND predict, e.g.
+#               TAG=m3 VIEWS="full addr skel name" B_ARGS="--reverse-pool 1 --exact-gpu 1" bash ...
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 if command -v nvidia-smi >/dev/null && nvidia-smi >/dev/null 2>&1; then
@@ -46,9 +48,9 @@ if [ ! -f "$WORK/test/records.parquet" ]; then
     python scripts/prepare_data.py --data-root "$ROOT" --out "$WORK"
   fi
 fi
-python scripts/run_stage_b.py train --work "$WORK" --s1-sample "${S1_SAMPLE:-60000}" --tag "$TAG" --scratch $SCR $VIEW_ARGS
+python scripts/run_stage_b.py train --work "$WORK" --s1-sample "${S1_SAMPLE:-60000}" --tag "$TAG" --scratch $SCR $VIEW_ARGS ${B_ARGS:-}
 rm -f $SCR/Z_train_*              # free disk before building the test vectors
-python scripts/run_stage_b.py predict --work "$WORK" --tag "$TAG" --scratch $SCR --out "$OUT"
+python scripts/run_stage_b.py predict --work "$WORK" --tag "$TAG" --scratch $SCR --out "$OUT" ${B_ARGS:-}
 cp "$WORK/models/$TAG/meta.json" "$OUT/meta_$TAG.json"
 rm -f $SCR/Z_test_*
 V=$(find -L /kaggle/input -name validate_submission.py 2>/dev/null | head -1 || true)
