@@ -31,7 +31,10 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from dataclasses import dataclass, field
 
-import faiss
+try:
+    import faiss
+except ImportError:      # cached stages (combine, diagnosis) never search
+    faiss = None
 import numpy as np
 import pandas as pd
 import scipy.sparse as sp

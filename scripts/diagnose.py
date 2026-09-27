@@ -42,6 +42,12 @@ def sim(a, b) -> np.ndarray:
     return process.cpdist(list(a), list(b), scorer=fuzz.token_set_ratio, workers=-1).astype(np.float32)
 
 
+def rounded(row: pd.Series) -> dict:
+    """Row of a tuning table as a JSON-friendly dict (mixed dtypes, so no Series.round)."""
+    return {k: (bool(v) if isinstance(v, (bool, np.bool_)) else round(float(v), 4) if isinstance(v, (int, float, np.number))
+                else v) for k, v in row.to_dict().items()}
+
+
 def sibling_sim(ci, cj, pi, pj, pp, text, top=3) -> dict:
     """For pairs (ci, cj): best similarity of cj to the top-`top` predicted
     matches (pi, pj, prob pp) of the same S1, excluding cj itself."""
@@ -184,9 +190,9 @@ def main() -> None:
     thr = E.tune(df, q, ti, tj, n)
     per_src = E.tune(df, q, ti, tj, n, per_source=True)
     exp = E.tune_expected(df, q, ti, tj, n)
-    rules = {"global_threshold": thr.iloc[0].round(4).to_dict(),
-             "per_source_threshold": per_src.iloc[0].round(4).to_dict(),
-             "per_s1_expected_f05": exp.iloc[0].round(4).to_dict()}
+    rules = {"global_threshold": rounded(thr.iloc[0]),
+             "per_source_threshold": rounded(per_src.iloc[0]),
+             "per_s1_expected_f05": rounded(exp.iloc[0])}
 
     # ---- 4. points lost by country and S1 size
     cc = take_rows(args.train_records, q, ["country"])["country"].to_numpy()
