@@ -178,6 +178,10 @@ def main() -> None:
 
     write(allc, out / "candidate_pairs.tsv", "candidate_entity_ids")
     write(pred, out / "matching_results.tsv", "matched_entity_ids")
+    # scores for later stages (scripts/merge_bienc.py): train OOF and test, plus the decision rule
+    tr[["i", "j", "src", "label", "p2"]].to_parquet(out / "stack_train.parquet", index=False)
+    allc.to_parquet(out / "stack_test.parquet", index=False)
+    (out / "stack_rule.json").write_text(json.dumps({"chosen": name, "rule": best}, default=float))
     print("\n" + chosen["imp"].head(20).round(0).to_string())
     print("\n===== COMBINE SUMMARY (paste this) =====")
     print(json.dumps({"stage_b_oof_f05": round(float(base_rule["macro_f05"]), 4),
