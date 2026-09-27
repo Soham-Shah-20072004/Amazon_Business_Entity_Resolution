@@ -67,7 +67,7 @@ def main() -> None:
                           fit_sample=args.fit_sample, exact_gpu=False)
     res = build_resources(split, cfg, log)
 
-    rows, found_all = {}, {}
+    rows = {}
     nt = np.bincount(np.searchsorted(q, ti), minlength=len(q))
     src_t = split.rec["source"].to_numpy()[tj]
     cc = split.rec["country_code"].to_numpy()[ti]

@@ -84,6 +84,23 @@ def prerank_keep(df: pd.DataFrame, t_pre: float, k_pre: int) -> np.ndarray:
     return (df["pre_p"].to_numpy() >= t_pre) & (E.rank_in_list(df, "pre_p") <= k_pre)
 
 
+def rescue_new(df: pd.DataFrame, model_blockers, k: int = 3) -> np.ndarray:
+    """Pairs found ONLY by blockers the saved pre-ranker never saw (reverse search,
+    extra views): the pre-ranker cannot judge them fairly, so send the plausible
+    ones straight to the matcher - the record's own best S1 (reverse), and the
+    top-k of each new view per source."""
+    if not model_blockers:
+        return np.zeros(len(df), bool)
+    only_new = df["n_blockers"].to_numpy() == 0
+    m = np.zeros(len(df), bool)
+    if "blk_rev" in df and "rev_is_best" in df:
+        m |= (df["blk_rev"].to_numpy() == 1) & (df["rev_is_best"].to_numpy() == 1)
+    for c in df.columns:
+        if c.startswith("blk_ann_") and c[4:] not in model_blockers and f"grp_rank_cos_{c[8:]}" in df:
+            m |= (df[c].to_numpy() == 1) & (df[f"grp_rank_cos_{c[8:]}"].to_numpy() <= k)
+    return only_new & m
+
+
 def label(split, df: pd.DataFrame) -> np.ndarray:
     n = len(split.rec)
     tk = np.sort(split.truth["i"].to_numpy() * n + split.truth["j"].to_numpy())
@@ -231,7 +248,7 @@ def cmd_predict(args, cfg) -> None:
     cache = mdir / "test_pairs"
     cache.mkdir(exist_ok=True)
     kept_parts = []
-    n_union = 0
+    n_union = n_rescued = 0
     for s in range(0, len(q), args.chunk):
         lo, hi = q[s], q[min(s + args.chunk, len(q)) - 1]
         cand = assemble(split, res, cfg, slice_found(found, lo, hi))
@@ -239,14 +256,19 @@ def cmd_predict(args, cfg) -> None:
         cheap = cheap_features(cand, rev, cfg.views)
         del cand
         cheap["pre_p"] = pre_model.predict(cheap[meta["cheap_columns"]])
-        red = cheap[prerank_keep(cheap, meta["t_pre"], meta["k_pre"])].reset_index(drop=True)
+        keep = prerank_keep(cheap, meta["t_pre"], meta["k_pre"])
+        rescued = rescue_new(cheap, cfg.model_blockers) & ~keep
+        keep |= rescued
+        n_rescued += int(rescued.sum())
+        red = cheap[keep].reset_index(drop=True)
         del cheap
         full = full_features(split.rec, res, red, cfg.workers)
         red["p"] = match_model.predict(full[meta["full_columns"]])
         full["p"] = red["p"].to_numpy()
         full.to_parquet(cache / f"part-{s // args.chunk:03d}.parquet", index=False)
         kept_parts.append(red[["i", "j", "src", "pre_p", "p"]])
-        log(f"  S1 {s + 1:,}-{min(s + args.chunk, len(q)):,}: {len(red):,} candidates kept")
+        log(f"  S1 {s + 1:,}-{min(s + args.chunk, len(q)):,}: {len(red):,} candidates kept "
+            f"({n_rescued:,} rescued so far: found only by the new searches)")
     allc = pd.concat(kept_parts, ignore_index=True)
     rule = meta["rule"]
     keep = E.decide(allc, rule["t2"], rule["t3"], bool(rule["one_owner"]))
