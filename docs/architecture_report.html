@@ -1,0 +1,437 @@
+<title>ER Pipeline Blueprint</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@600;700&display=swap">
+<style>
+:root{
+  --paper:#f6f7f9; --panel:#ffffff; --ink:#172131; --muted:#556275; --line:#dde2ea;
+  --accent:#0d7480; --accent-soft:#e3f2f3; --warn:#9a6212; --warn-soft:#fbf1e0;
+  --bad:#a33a3a; --bad-soft:#f8e6e6; --good:#2f7a45; --good-soft:#e5f3e9; --code:#eef1f5;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --paper:#11161e; --panel:#171e28; --ink:#e3e8ef; --muted:#9aa7b8; --line:#2a3442;
+    --accent:#4fb8c2; --accent-soft:#16333a; --warn:#e2ad5a; --warn-soft:#3a2d17;
+    --bad:#e38585; --bad-soft:#3b2020; --good:#7cc793; --good-soft:#1c3324; --code:#1e2733;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#11161e; --panel:#171e28; --ink:#e3e8ef; --muted:#9aa7b8; --line:#2a3442;
+  --accent:#4fb8c2; --accent-soft:#16333a; --warn:#e2ad5a; --warn-soft:#3a2d17;
+  --bad:#e38585; --bad-soft:#3b2020; --good:#7cc793; --good-soft:#1c3324; --code:#1e2733;
+  color-scheme: dark;
+}
+*{box-sizing:border-box}
+body{background:var(--paper);color:var(--ink);font:15px/1.6 "IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;padding-inline:16px;padding-block:28px 64px}
+.wrap{max-width:980px;margin:0 auto;display:grid;gap:34px}
+h1,h2,h3{font-family:"IBM Plex Sans Condensed","IBM Plex Sans",system-ui,sans-serif;text-wrap:balance;line-height:1.2;margin:0}
+h1{font-size:34px;letter-spacing:-.01em}
+h2{font-size:24px;padding-top:6px;border-top:2px solid var(--ink)}
+h3{font-size:18px;margin-top:6px}
+p{margin:0;max-width:72ch}
+.stack{display:grid;gap:14px}
+.eyebrow{font:500 12px/1 "IBM Plex Mono",ui-monospace,monospace;text-transform:uppercase;letter-spacing:.08em;color:var(--accent)}
+.lede{color:var(--muted);font-size:16px}
+code,.mono{font-family:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.88em}
+code{background:var(--code);padding:1px 5px;border-radius:4px}
+pre{background:var(--code);padding:12px 14px;border-radius:6px;overflow-x:auto;margin:0;font:13px/1.5 "IBM Plex Mono",ui-monospace,monospace}
+a{color:var(--accent)}
+a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+nav.toc{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:14px 18px}
+nav.toc ol{margin:6px 0 0;padding-left:20px;columns:2;column-gap:28px}
+nav.toc li{break-inside:avoid;padding:2px 0}
+@media (max-width:640px){nav.toc ol{columns:1}}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px}
+.tile{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:12px 14px;display:grid;gap:2px}
+.tile .v{font:600 26px/1.1 "IBM Plex Sans Condensed",sans-serif;font-variant-numeric:tabular-nums}
+.tile .k{font-size:12.5px;color:var(--muted)}
+.tile .n{font-size:12px;color:var(--muted)}
+.tbl{overflow-x:auto;border:1px solid var(--line);border-radius:8px;background:var(--panel)}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{text-align:left;padding:8px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-weight:600;font-size:12.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;background:var(--paper)}
+tr:last-child td{border-bottom:0}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.pill{display:inline-block;font:500 11.5px/1.6 "IBM Plex Mono",monospace;padding:0 7px;border-radius:999px;white-space:nowrap}
+.pill.good{background:var(--good-soft);color:var(--good)}
+.pill.warn{background:var(--warn-soft);color:var(--warn)}
+.pill.bad{background:var(--bad-soft);color:var(--bad)}
+.pill.info{background:var(--accent-soft);color:var(--accent)}
+.stage{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:16px 18px;display:grid;gap:10px}
+.stage header{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:baseline}
+.stage header h3{margin:0}
+.stage ul{margin:0;padding-left:20px;display:grid;gap:4px}
+.note{border-left:3px solid var(--warn);background:var(--warn-soft);padding:10px 14px;border-radius:0 6px 6px 0}
+.note.info{border-color:var(--accent);background:var(--accent-soft)}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:14px 16px;display:grid;gap:8px;align-content:start}
+.card h3{font-size:16px;margin:0}
+.meta{display:flex;flex-wrap:wrap;gap:6px}
+dl.gloss{display:grid;grid-template-columns:minmax(120px,190px) 1fr;gap:8px 18px;margin:0}
+dl.gloss dt{font-weight:600}
+dl.gloss dd{margin:0;color:var(--ink)}
+@media (max-width:560px){dl.gloss{grid-template-columns:1fr}dl.gloss dd{margin-bottom:6px}}
+.mermaid-box{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:12px;overflow-x:auto}
+.mermaid-box svg{min-width:900px}
+footer{color:var(--muted);font-size:13px;border-top:1px solid var(--line);padding-top:14px}
+@media (prefers-reduced-motion:reduce){*{scroll-behavior:auto!important}}
+</style>
+
+<div class="wrap">
+
+<header class="stack">
+  <span class="eyebrow">Amazon ML Challenge 2026 · Business Entity Resolution · team notes</span>
+  <h1>ER Pipeline Blueprint</h1>
+  <p class="lede">How our current solution works end to end, the exact settings, what we have measured so far, where it is weak, and the open questions worth researching. Written so teammates can critique it and propose architecture changes.</p>
+  <p class="mono" style="font-size:13px;color:var(--muted)">Code: github.com/Soham-Shah-20072004/Amazon_Business_Entity_Resolution · branch <code>soham/pipeline-v1</code> · status as of 27 Sep 2026, morning IST</p>
+</header>
+
+<nav class="toc" aria-label="Contents">
+  <span class="eyebrow">Contents</span>
+  <ol>
+    <li><a href="#status">Status at a glance</a></li>
+    <li><a href="#facts">Data facts that shaped the design</a></li>
+    <li><a href="#overview">Architecture overview</a></li>
+    <li><a href="#stages">Stage by stage, with settings</a></li>
+    <li><a href="#validation">How we validate</a></li>
+    <li><a href="#results">Measured results</a></li>
+    <li><a href="#compute">Compute, runtime and caching</a></li>
+    <li><a href="#issues">Known issues and risks</a></li>
+    <li><a href="#research">Open research directions</a></li>
+    <li><a href="#run">How to run it</a></li>
+    <li><a href="#glossary">Glossary</a></li>
+  </ol>
+</nav>
+
+<!-- ============================================================ -->
+<section id="status" class="stack">
+  <h2>1 · Status at a glance</h2>
+  <div class="tiles">
+    <div class="tile"><span class="k">Out-of-fold macro F0.5 (train sample)</span><span class="v">0.953</span><span class="n">precision 0.989 · recall 0.895</span></div>
+    <div class="tile"><span class="k">Blocking recall ceiling (full pool)</span><span class="v">93.4%</span><span class="n">US 94.8% · India 91.3% (older blocking settings)</span></div>
+    <div class="tile"><span class="k">Candidates per test S1 (submission #1)</span><span class="v">18.1</span><span class="n">next step cuts this to ≤ 8</span></div>
+    <div class="tile"><span class="k">Predicted matches per test S1</span><span class="v">3.05</span><span class="n">92.9% of S1 get ≥ 1 match</span></div>
+  </div>
+  <div class="tbl"><table>
+    <thead><tr><th>Piece</th><th>State</th><th>Notes</th></tr></thead>
+    <tbody>
+      <tr><td>EDA on real data</td><td><span class="pill good">done</span></td><td>Anumita's run, branch <code>outputs/real-data-fast-run1</code></td></tr>
+      <tr><td>Stage A · prepare + blocking diagnostics</td><td><span class="pill good">done</span></td><td>Recall report on 50k train S1 vs the full 10.3M pool</td></tr>
+      <tr><td>Stage B · pre-ranker + matcher + decision</td><td><span class="pill good">done</span></td><td>Full run ≈ 8 h on Kaggle CPU; validator PASS; submission #1 file produced</td></tr>
+      <tr><td>Stage C · cross-encoder + stacking (GPU)</td><td><span class="pill warn">ready to run</span></td><td>Tested end to end with a stand-in model; needs one Kaggle GPU run (~1 h)</td></tr>
+      <tr><td>Public leaderboard score</td><td><span class="pill info">pending</span></td><td>Compare with the 0.953 out-of-fold estimate when it appears</td></tr>
+      <tr><td>Final package (zip, README, write-up)</td><td><span class="pill info">todo</span></td><td>This page is a starting point for the methodology document</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<!-- ============================================================ -->
+<section id="facts" class="stack">
+  <h2>2 · Data facts that shaped the design</h2>
+  <p>From the real-data EDA and our own runs. Each fact maps to a design decision later on.</p>
+  <div class="tbl"><table>
+    <thead><tr><th>Fact</th><th>Evidence</th><th>Design consequence</th></tr></thead>
+    <tbody>
+      <tr><td>Scale: ~12.5M records per split</td><td>Train 2.21M S1, 5.03M S2, 5.29M S3 · Test 1.73M S1, 4.89M S2, 5.08M S3 · 2.5 GB of TSV</td><td>No all-pairs comparison; approximate nearest-neighbour search, sampling for training, batching at test time</td></tr>
+      <tr><td>Most S1 have several matches</td><td>Singletons 5.6% · 1 match 5.4% · 2–3 matches 41% · 4+ matches 48% · 7.64M positive pairs</td><td>No top-1 rule; every candidate is judged on its own; recall on multi-match S1s is the biggest lever</td></tr>
+      <tr><td>Heavy noise</td><td>Names identical in 21% of true pairs, addresses in 8%; median name ratio 0.875</td><td>Fuzzy + token + character features; several retrieval views</td></tr>
+      <tr><td>Numbers discriminate</td><td>House-number conflict in 12% of true pairs vs ~87% of look-alike non-matches</td><td>Separate features for agree / conflict / missing / dropped digit (3352 vs 335)</td></tr>
+      <tr><td>Country never differs within a true pair</td><td>0 cross-country positives in train</td><td>Blocking runs per country; France (test only) is simply another group</td></tr>
+      <tr><td>No record belongs to two S1s</td><td>0 of 7.64M matched ids have 2+ owners (full ground truth)</td><td>“One owner” decision rule and reverse-rank features</td></tr>
+      <tr><td>Mixed scripts</td><td>S1 is 100% Latin; ~9% of S2 and ~5% of S3 names are Devanagari or Gujarati; ~6.5% of true pairs are cross-script</td><td>unidecode transliteration + a sound-skeleton view; multilingual cross-encoder planned</td></tr>
+      <tr><td>Abbreviations and aliases</td><td>Gujarat ↔ GJ, Haryana ↔ HR, Bombay ↔ Mumbai, Pvt ↔ Private, “CO” = Company (name) or Colorado (address)</td><td>Separate name / address canonical maps, state and city alias tables</td></tr>
+      <tr><td>Test differs from train</td><td>Test is India-heavy (47% vs 40%) and 15% France; train has no France</td><td>No country one-hot; universal character features; per-country sanity checks on test predictions</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<!-- ============================================================ -->
+<section id="overview" class="stack">
+  <h2>3 · Architecture overview</h2>
+  <p>A cascade: each stage looks at fewer pairs with more expensive evidence. Numbers are per S1 on the test set.</p>
+  <div class="mermaid-box">
+<pre class="mermaid">
+flowchart LR
+  A[TSV files<br/>S1, S2, S3] --> B[Prepare<br/>text views, numbers<br/>parquet cache]
+  B --> C[Blocking per country x source<br/>FAISS on full / addr / skeleton<br/>+ rare words + exact name<br/>~164 candidates]
+  C --> R[Reverse check<br/>best S1 for each candidate<br/>among ALL S1]
+  C --> D[Pre-ranker<br/>LightGBM, 24 cheap features<br/>~18 kept]
+  R --> D
+  D --> E[Matcher<br/>LightGBM, ~80 features<br/>P match]
+  E --> F[Focus set<br/>p ≥ 0.01, top 8<br/>= candidate_pairs.tsv]
+  F --> G[Cross-encoder GPU<br/>multilingual MiniLM]
+  G --> H[Stacked LightGBM]
+  E -.-> H
+  H --> I[Decision<br/>threshold + one owner<br/>empty list allowed]
+  I --> J[matching_results.tsv]
+</pre>
+  </div>
+  <p>Submission #1 used the path up to the matcher and decision (no focus set, no cross-encoder). Stage C adds the focus set, the cross-encoder score and a stacked matcher.</p>
+</section>
+
+<!-- ============================================================ -->
+<section id="stages" class="stack">
+  <h2>4 · Stage by stage, with settings</h2>
+
+  <article class="stage">
+    <header><h3>Stage 0 · Prepare</h3><span class="pill good">done</span><code>er/text.py · er/prepare.py · scripts/prepare_data.py</code></header>
+    <p>Reads each TSV in 400k-row chunks (C engine, <code>QUOTE_NONE</code> so a stray quote cannot swallow rows), normalises in parallel on all cores, and appends to one parquet file per split. About 15 minutes per split on 4 CPUs; reused by every later run.</p>
+    <ul>
+      <li><b>norm</b>: NFKC, lowercase, <code>&amp;</code>→and, punctuation → space; combining marks kept (dropping them split every Devanagari word into letters – a bug we found and fixed).</li>
+      <li><b>ascii</b>: unidecode (Hindi/Gujarati → Latin, French accents dropped), with a fix for candra-O (ऑ) and digit/letter splitting (<code>12a</code> → <code>12 a</code>).</li>
+      <li><b>canon</b>: separate maps for names (pvt→private, ltd→limited, corp→corporation …) and addresses (rd→road, bd→boulevard, US + Indian state names → codes, Bombay→Mumbai, Gurgaon→Gurugram, unidecoded Hindi state names → codes).</li>
+      <li><b>core name</b>: canon name without legal tokens; <b>acronym</b> of core; <b>skeleton</b>: sound frame (drop inner vowels and h, collapse doubles, ph→f, nb→mb) so <em>Delhi / दिल्ली → dl</em>, <em>Gujarat / गुजरात → gjrt</em>, <em>Smart Management Private Limited</em> and its Gujarati form differ by one letter.</li>
+      <li><b>numbers</b> (leading zeros stripped: J-03/79 = J-3/79) and <b>postcode-like</b> tokens (5–6 digits, joins Indian “560 001”).</li>
+    </ul>
+  </article>
+
+  <article class="stage">
+    <header><h3>Stage 1 · Blocking (candidate generation)</h3><span class="pill good">done</span><code>er/retrieval.py</code></header>
+    <p>Runs independently for every country and for each target source (S2, S3), so neither source crowds out the other. The union of five blockers forms the candidate list.</p>
+    <div class="tbl"><table>
+      <thead><tr><th>Blocker</th><th>How it works</th><th>Current settings</th></tr></thead>
+      <tbody>
+        <tr><td><code>ann_full</code></td><td>Char n-gram TF-IDF of “canon name | canon address” → truncated SVD (LSA) → L2-normalised vectors → FAISS IVF-Flat, inner product</td><td>char_wb 3–4, 262k features, sublinear tf, 128 dims (float16 on disk), nlist = 2√n, nprobe 32, top 25</td></tr>
+        <tr><td><code>ann_addr</code></td><td>Same on the canon address alone</td><td>char_wb 3–4, top 25</td></tr>
+        <tr><td><code>ann_skel</code></td><td>Same on “name skeleton | address skeleton”; bridges scripts and vowel typos</td><td>char_wb 2–4, top 25</td></tr>
+        <tr><td><code>rare</code></td><td>Name / address / postcode tokens hashed into 2<sup>24</sup> columns; a token is “rare” if it appears in few pool records; score = sum of IDF of shared rare tokens (a sparse matrix product)</td><td>rare = df ≤ max(100, 300 per million pool records) → ~900 in a 3M pool; top 20</td></tr>
+        <tr><td><code>exact</code></td><td>Identical core name within the country</td><td>blocks with more than 50 pool records skipped (generic names)</td></tr>
+      </tbody>
+    </table></div>
+    <p>Every candidate pair then gets all three cosines and the rare score, even from views that did not retrieve it. A <b>reverse check</b> searches, for each candidate record, its top 3 S1s among <em>all</em> S1s of the country (full view). Features: is this S1 the best / second best for the candidate, gap to the best, margin between the best two. This encodes the one-owner fact and is computed identically on train (sampled queries) and test.</p>
+    <div class="note">Name-only search was replaced by the combined “full” view after the real-data smoke test (name-only found 47% of matches alone on the full pool, with few unique finds). The 93.4% recall figure comes from the older settings (name / addr / skel, k = 15, fixed rare threshold); the current settings have not been measured on the full train pool yet.</div>
+  </article>
+
+  <article class="stage">
+    <header><h3>Stage 2 · Pre-ranker</h3><span class="pill good">done</span><code>scripts/run_stage_b.py · er/features.py</code></header>
+    <ul>
+      <li><b>Input</b>: every blocked pair (~164 per S1). <b>Features (24, cheap)</b>: blocker flags, number of blockers, source, three cosines, rare score, rank and gap-to-best of each score within the S1's list per source, list size, reverse-check features.</li>
+      <li><b>Model</b>: LightGBM binary, learning rate 0.1, 63 leaves, min 50 per leaf, 90% features and 80% rows per tree, early stopping 50. Trained on all positives + 30% of negatives; 3-fold grouped out-of-fold scores.</li>
+      <li><b>Cut</b>: keep top-k per S1 with p ≥ t; (k, t) chosen as the smallest list within a 0.5% loss budget of the positives blocking found. The full run chose a generous cut: <b>~18 per S1</b>.</li>
+    </ul>
+  </article>
+
+  <article class="stage">
+    <header><h3>Stage 3 · Matcher</h3><span class="pill good">done</span><code>er/features.py · er/model.py</code></header>
+    <ul>
+      <li><b>Features (~80)</b>: the cheap set plus rapidfuzz ratio / partial / token-sort / token-set / Jaro-Winkler on names, core names and skeletons; address ratio / partial / token-set / token-sort; exact flags; lengths; IDF-weighted token overlap, max shared and max unshared IDF for names and addresses (sparse matrix ops); number count, Jaccard, overlap, conflict, subset, dropped-digit prefix, first-number agree / conflict; postcode agree / conflict / missing; legal-suffix mismatch; acronym; name inside the other's address; rank / gap of name and address similarity within the list.</li>
+      <li><b>Model</b>: LightGBM binary (log loss, second-order gradient boosting), learning rate 0.05, 127 leaves, min 40 per leaf, 80% features and rows per tree, L2 = 1, early stopping 100. 5-fold out-of-fold scores grouped by S1; final model on all pairs with 1.1 × the mean best iteration count.</li>
+      <li><b>Training data</b>: 60,000 random train S1s searched against the full pool; label = ground truth. Negatives are the blocker's own wrong candidates (hard negatives by construction).</li>
+      <li><b>Strongest features</b> (gain, smoke run): address skeleton token-set, core-name ratio, number Jaccard, name partial ratio, Jaro-Winkler, number subset, first-number conflict, rare score.</li>
+    </ul>
+  </article>
+
+  <article class="stage">
+    <header><h3>Stage 4 · Decision</h3><span class="pill good">done</span><code>er/evaluate.py</code></header>
+    <ul>
+      <li>Keep a pair when p ≥ t; thresholds 0.05–0.95 swept (per-source thresholds optional), with and without the one-owner rule, choosing whatever maximises the exact macro F0.5 on out-of-fold scores.</li>
+      <li><b>One owner</b>: if several S1s claim the same record, only the highest-probability S1 keeps it.</li>
+      <li>No forced match: an S1 with nothing above t gets an empty list (worth 1.0 when it is a true singleton).</li>
+    </ul>
+  </article>
+
+  <article class="stage">
+    <header><h3>Stage 5 · Focus set, cross-encoder and stacking</h3><span class="pill warn">ready to run</span><code>scripts/gpu/cross_encoder.py · scripts/run_combine.py</code></header>
+    <ul>
+      <li><b>Focus set</b>: pairs with first-stage matcher p ≥ 0.01, top 8 per S1, identical rule on train (out-of-fold p) and test. Pairs below 1% are never predicted anyway, so this costs essentially no recall; it cuts <code>candidate_pairs.tsv</code> from ~18 to ~5–7 per S1 and bounds GPU time.</li>
+      <li><b>Cross-encoder</b>: <code>sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2</code> (Apache-2.0, 118M parameters, 12 layers × 384 hidden, 250k-piece SentencePiece vocabulary, 50+ languages incl. Hindi, Gujarati, Marathi, French). Input <code>[CLS] name | address [SEP] name | address [SEP]</code> in the original script, max 96 tokens; new 1-logit head; binary cross-entropy; AdamW lr 3e-5, weight decay 0.01, 6% linear warm-up; 2 epochs; fp16; both T4s via DataParallel; length-bucketed batches.</li>
+      <li><b>Out-of-fold for stacking</b>: 2 folds by S1; each half is scored by the model trained on the other half; test gets the average of both.</li>
+      <li><b>Stacked matcher</b>: the Stage 3 feature set + cross-encoder score, its rank and gap in the list; same LightGBM recipe and decision tuning; prints the Stage 3 and stacked out-of-fold F0.5 side by side before writing files.</li>
+    </ul>
+  </article>
+</section>
+
+<!-- ============================================================ -->
+<section id="validation" class="stack">
+  <h2>5 · How we validate</h2>
+  <ul class="stack" style="padding-left:20px;margin:0">
+    <li><b>Query sampling, full pool</b>: training and blocking reports use random train S1s, but always search the complete S2/S3 pool, so the look-alike density matches test.</li>
+    <li><b>Grouped folds</b>: fold = hash(S1 row) mod k; all candidates of one S1 share a fold, so every S1 is scored by a model that never saw it.</li>
+    <li><b>Exact metric</b>: macro F0.5 per S1 including singletons (empty prediction = 1.0), vectorised so thresholds can be swept hundreds of times.</li>
+    <li><b>Recall accounting</b>: true pairs lost in blocking or in the pre-ranker count as misses in the metric; the report prints union recall, kept recall and final recall separately.</li>
+    <li><b>Slices with points lost</b>: points lost = Σ(1 − F0.5) over the slice / N × 100, i.e. how many leaderboard points each group costs. Slices: singleton, 1, 2–3, 4+ matches, cross-script match, blocking missed, pre-ranker dropped, same-name distractor, S1 address without numbers, per country.</li>
+  </ul>
+  <div class="note">Caveats: the estimate comes from a 60k-S1 sample (≈ 2.7% of train); test is India-heavy and contains France, which we cannot validate locally; the one-owner competition inside a sample is weaker than on the full test set. Compare the out-of-fold score with the public leaderboard before trusting small gains.</div>
+</section>
+
+<!-- ============================================================ -->
+<section id="results" class="stack">
+  <h2>6 · Measured results</h2>
+  <h3>Blocking, full pool (Stage A: 50k train S1 × 10.3M records, older settings)</h3>
+  <div class="tbl"><table>
+    <thead><tr><th>Blocker</th><th class="num">Recall alone</th><th class="num">Matches only it found</th></tr></thead>
+    <tbody>
+      <tr><td>Name-only ANN (since replaced by full)</td><td class="num">46.8%</td><td class="num">2,211</td></tr>
+      <tr><td>Address ANN</td><td class="num">63.3%</td><td class="num">6,934</td></tr>
+      <tr><td>Skeleton ANN</td><td class="num">74.4%</td><td class="num">7,839</td></tr>
+      <tr><td>Rare words (fixed df ≤ 100, since scaled with pool size)</td><td class="num">40.5%</td><td class="num">3,909</td></tr>
+      <tr><td>Exact core name</td><td class="num">40.7%</td><td class="num">2,717</td></tr>
+      <tr><td><b>Union</b> (101 per S1)</td><td class="num"><b>93.4%</b></td><td class="num">S1 with all matches found: 82.1%</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Stage B out-of-fold (60k train S1)</h3>
+  <div class="tbl"><table>
+    <thead><tr><th>Metric</th><th class="num">Value</th></tr></thead>
+    <tbody>
+      <tr><td>Macro F0.5</td><td class="num">0.9527</td></tr>
+      <tr><td>Pair precision / pair recall</td><td class="num">0.989 / 0.895</td></tr>
+      <tr><td>Singleton share / singleton accuracy</td><td class="num">5.7% / 94.5%</td></tr>
+      <tr><td>Predicted matches per S1</td><td class="num">3.12</td></tr>
+    </tbody>
+  </table></div>
+  <div class="tbl"><table>
+    <thead><tr><th>Slice (partial list)</th><th class="num">S1s</th><th class="num">F0.5</th><th class="num">Points lost</th></tr></thead>
+    <tbody>
+      <tr><td>4+ matches</td><td class="num">28,682</td><td class="num">0.963</td><td class="num">1.76</td></tr>
+      <tr><td>1 match</td><td class="num">3,279</td><td class="num">0.885</td><td class="num">0.63</td></tr>
+      <tr><td>Pre-ranker dropped a match</td><td class="num">1,280</td><td class="num">0.828</td><td class="num">0.37</td></tr>
+      <tr><td>Singleton</td><td class="num">3,448</td><td class="num">0.945</td><td class="num">0.32</td></tr>
+      <tr><td>S1 address has no numbers</td><td class="num">2,104</td><td class="num">0.961</td><td class="num">0.14</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Test predictions (submission #1)</h3>
+  <div class="tbl"><table>
+    <thead><tr><th>Country</th><th class="num">S1</th><th class="num">Candidates / S1</th><th class="num">Matches / S1</th><th class="num">S1 with a match</th></tr></thead>
+    <tbody>
+      <tr><td>France (unseen in train)</td><td class="num">259,452</td><td class="num">19.9</td><td class="num">2.82</td><td class="num">90.3%</td></tr>
+      <tr><td>India</td><td class="num">809,986</td><td class="num">18.7</td><td class="num">3.02</td><td class="num">92.9%</td></tr>
+      <tr><td>US</td><td class="num">663,106</td><td class="num">16.6</td><td class="num">3.18</td><td class="num">93.9%</td></tr>
+      <tr><td><b>All</b></td><td class="num"><b>1,732,544</b></td><td class="num"><b>18.1</b></td><td class="num"><b>3.05</b></td><td class="num"><b>92.9%</b></td></tr>
+    </tbody>
+  </table></div>
+  <p>France behaves close to the other countries, a sign the character-level features transfer. Official validator: PASS.</p>
+</section>
+
+<!-- ============================================================ -->
+<section id="compute" class="stack">
+  <h2>7 · Compute, runtime and caching</h2>
+  <p>All runs so far are Kaggle notebooks: 4 CPU cores, 31 GB RAM, 12 h limit, "Save &amp; Run All" so they survive disconnects. AWS: SageMaker quotas are 0 on the account; an EC2 16-vCPU request (Hyderabad) is pending.</p>
+  <div class="tbl"><table>
+    <thead><tr><th>Step (full Stage B run)</th><th class="num">Time</th><th>Why</th></tr></thead>
+    <tbody>
+      <tr><td>Train part: vectors for 12.5M records, blocking for 60k S1, models</td><td class="num">~2 h 10 m</td><td>Text vectorisation is Python-heavy; 12 IVF indexes to build</td></tr>
+      <tr><td>Test vectors (11.7M records × 3 views)</td><td class="num">~30 m</td><td>Same vectoriser</td></tr>
+      <tr><td>Test search (1.7M S1 × 3 views × 2 sources)</td><td class="num">~1 h 50 m</td><td>Each lookup scans ~20k vectors; 20–28 min per country/source on CPU</td></tr>
+      <tr><td>Reverse check + 18 scoring batches + writing</td><td class="num">~3 h 30 m</td><td>~280M blocked pairs get cheap features; ~31M pairs (18/S1) get full features</td></tr>
+    </tbody>
+  </table></div>
+  <h3>Where one scoring batch spends its time (profiled 27 Sep)</h3>
+  <p>One batch = 80k S1 (synthetic data built to mimic the real layout), ~160 blocked candidates per S1, 18 kept per S1 as in the real run, 4 CPU cores. "Before" is the code that produced submission #1; "after" is the current code. Output files are identical, so the saved models stay valid.</p>
+  <div class="tbl"><table>
+    <thead><tr><th>Step</th><th class="num">Before</th><th class="num">After</th><th>What changed / why it costs</th></tr></thead>
+    <tbody>
+      <tr><td>Cosine scores S1 ↔ candidate, 3 views</td><td class="num">93 s</td><td class="num">13 s</td><td>Was one core and re-read the S1 vector for each of its ~160 candidates; now 4 threads, S1 vector read once</td></tr>
+      <tr><td>Rank / gap inside each S1's list</td><td class="num">27 s</td><td class="num">12 s</td><td>pandas groupby → Polars window functions (multi-threaded)</td></tr>
+      <tr><td>String similarities (rapidfuzz)</td><td class="num">36 s</td><td class="num">35 s</td><td>Already multi-core C++; scales with kept pairs per S1</td></tr>
+      <tr><td>Pre-ranker predict (LightGBM)</td><td class="num">25 s</td><td class="num">24 s</td><td>12.8M rows × 24 features</td></tr>
+      <tr><td>Union of blockers + flags</td><td class="num">14 s</td><td class="num">14 s</td><td>numpy unique on pair keys</td></tr>
+      <tr><td>Everything else (rare score, numbers, matcher, parquet)</td><td class="num">30 s</td><td class="num">32 s</td><td>Small pieces</td></tr>
+      <tr><td><strong>Batch total</strong></td><td class="num"><strong>225 s</strong></td><td class="num"><strong>131 s</strong></td><td>−42%; on the real run this part took ~3 h 30 m, so expect ~2 h (not yet measured on real data)</td></tr>
+    </tbody>
+  </table></div>
+  <div class="grid2">
+    <div class="card"><h3>What is cached now</h3><p>Stage B saves the matcher's train pairs (features, labels, out-of-fold p), all kept test pairs with features, the sampled S1 list and their truth. Matcher, threshold, stacking and cross-encoder changes reuse them: ~10 min (CPU) or ~1 h (with the GPU cross-encoder) instead of 8 h.</p></div>
+    <div class="card"><h3>Speed-ups in the code</h3><p>Multi-threaded cosine scores (7× on that step) and Polars group ranks (2×), both measured above. GPU nearest-neighbour search (faiss-gpu on a T4 notebook; expected 1 h 50 m → 10–15 min, untested on GPU yet). <code>NPROBE</code> knob. The focus set limits the expensive stages to ≤ 8 pairs per S1.</p></div>
+    <div class="card"><h3>Why Polars is not a rewrite</h3><p>pandas was only the slow part in the group ranks. The rest of the time goes to numeric work that already runs in C/C++ (FAISS, sparse products, LightGBM, rapidfuzz) or to Python text vectorisation. A full pandas → Polars port would change little and risk bugs before the deadline.</p></div>
+    <div class="card"><h3>Still expensive</h3><p>Any change to blocking or the pre-ranker needs the long run (now an estimated ~5–6 h on CPU; less with GPU search). Next levers: run Stage B on a GPU notebook, a tighter pre-ranker cut (fewer rapidfuzz pairs), skip cross-view cosines, or split test by country across parallel notebooks.</p></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section id="issues" class="stack">
+  <h2>8 · Known issues and risks</h2>
+  <div class="tbl"><table>
+    <thead><tr><th>Issue</th><th>Impact</th><th>Mitigation / idea</th></tr></thead>
+    <tbody>
+      <tr><td>Blocking recall ~93% (India 91%)</td><td><span class="pill bad">high</span> hard ceiling on recall, esp. for 4+ match S1s</td><td>Better views, larger k for the strongest view, bi-encoder retrieval, graph expansion (section 9)</td></tr>
+      <tr><td>Pre-ranker kept ~18 per S1</td><td><span class="pill warn">medium</span> slow scoring, large candidate file (candidate size counts in final ranking)</td><td>Focus set (≤ 8) in Stage C; add a few cheap string features to sharpen the pre-ranker</td></tr>
+      <tr><td>Recall 0.895 vs precision 0.989</td><td><span class="pill warn">medium</span> F0.5 favours precision but multi-match recall still costs points</td><td>Per-source / per-country thresholds; entity-level rules; transitivity through S2–S3 near-duplicates</td></tr>
+      <tr><td>France unseen</td><td><span class="pill warn">medium</span> cannot be validated locally</td><td>Leave-one-country-out test as a proxy; watch per-country match rates</td></tr>
+      <tr><td>Estimate from a 2.7% sample</td><td><span class="pill info">low</span> small threshold tweaks may not transfer</td><td>Compare with the leaderboard; larger sample if time allows</td></tr>
+      <tr><td>Long runs on 4 CPUs</td><td><span class="pill warn">medium</span> few iterations before the deadline</td><td>Caching tiers, GPU search, AWS if the quota arrives</td></tr>
+      <tr><td>Compliance</td><td><span class="pill info">check</span></td><td>No external data or lookups; licences: LightGBM MIT, FAISS MIT, MiniLM model Apache-2.0; hand-written abbreviation tables are domain knowledge, documented in code</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<!-- ============================================================ -->
+<section id="research" class="stack">
+  <h2>9 · Open research directions</h2>
+  <p>Ordered roughly by expected gain per hour. Each can be researched independently; measured changes go through the out-of-fold report first.</p>
+  <div class="grid2">
+    <div class="card"><h3>Multi-match completion via S2/S3 duplicates</h3><div class="meta"><span class="pill bad">biggest slice</span><span class="pill info">CPU</span></div><p>48% of S1 have 4+ matches and lose 1.76 points. If record a is a confident match and record b is a near-duplicate of a within S2/S3, b is likely a match too. Idea: similarity between candidates of the same S1 as features (max similarity to the S1's confident matches), or a second pass adding siblings of accepted pairs. Must be precision-safe.</p></div>
+    <div class="card"><h3>Blocking recall</h3><div class="meta"><span class="pill bad">high</span><span class="pill warn">long rerun</span></div><p>Measure the current settings on the full pool first. Then: fine-tuned bi-encoder (contrastive, in-batch + hard negatives) as a fourth view; better transliteration for Indic names (e.g. an Indic transliteration library for a second Latin form); per-view k; nprobe 48–64 on GPU; sorted-neighbourhood on the skeleton key.</p></div>
+    <div class="card"><h3>Cross-encoder choices</h3><div class="meta"><span class="pill warn">medium</span><span class="pill info">GPU</span></div><p>MiniLM first. Candidates: MuRIL (Apache-2.0, trained on Indian languages including transliterated text – best fit for the cross-script slice), multilingual-e5-small (MIT), XLM-R base (MIT). Also try one epoch vs two, and field markers (<code>name:</code> / <code>address:</code>).</p></div>
+    <div class="card"><h3>Address structure</h3><div class="meta"><span class="pill warn">medium</span><span class="pill info">CPU</span></div><p>Parse house / unit / street / locality / city / state / PIN heuristically and compare component by component (conflict vs missing). Landmark phrases (“near SBI ATM”) as weak evidence. Helps same-name distractors (e.g. same chain, different branch).</p></div>
+    <div class="card"><h3>Decision rules</h3><div class="meta"><span class="pill info">cheap</span><span class="pill info">CPU</span></div><p>Per-source and per-country thresholds (already supported: <code>--per-source</code>); entity-level logic such as a lower threshold for siblings when the top candidate is very strong; calibration check of p by slice.</p></div>
+    <div class="card"><h3>Pre-ranker and candidate size</h3><div class="meta"><span class="pill info">cheap</span><span class="pill warn">long rerun</span></div><p>Add 2–3 cheap string features (e.g. token-set on core names) to the pre-ranker; tune the loss budget against the final metric; report the recall-vs-size curve for the write-up, since smaller candidate sets rank higher.</p></div>
+    <div class="card"><h3>Validation stress tests</h3><div class="meta"><span class="pill info">cheap</span></div><p>Train on US only and evaluate on India (unseen-country proxy for France); look at the hardest false positives and false negatives by hand for label noise and missing rules.</p></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section id="run" class="stack">
+  <h2>10 · How to run it</h2>
+  <p>Every script prints a block marked <code>REPORT</code> or <code>SUMMARY</code> to paste back. Kaggle notebooks need Internet on; attach the dataset plus the outputs of earlier notebooks as inputs.</p>
+<pre>
+# Stage A (CPU): prepare + blocking diagnostics
+!git clone -q -b soham/pipeline-v1 https://github.com/Soham-Shah-20072004/Amazon_Business_Entity_Resolution.git ber
+!bash ber/scripts/kaggle/stage_a.sh              # SMOKE=1 for a 5-minute check
+
+# Stage B (CPU, or GPU T4 for faster search): train + predict, writes output/*.tsv and caches
+!bash ber/scripts/kaggle/stage_b.sh              # env: TAG, S1_SAMPLE, VIEWS, NPROBE
+
+# Stage C (GPU T4 x2): cross-encoder + stacked matcher on the cached pairs
+!bash ber/scripts/kaggle/gpu_ce.sh               # env: TAG, MODEL, EPOCHS; SMOKE=1 first
+</pre>
+  <div class="tbl"><table>
+    <thead><tr><th>File</th><th>Role</th></tr></thead>
+    <tbody>
+      <tr><td><code>src/business_entity_resolution/er/text.py</code></td><td>Normalisation, abbreviation / state / city maps, skeleton, numbers, postcodes</td></tr>
+      <tr><td><code>er/prepare.py</code>, <code>scripts/prepare_data.py</code></td><td>Streaming TSV → parquet, parallel</td></tr>
+      <tr><td><code>er/dataset.py</code></td><td>Load a prepared split (integer rows, Arrow strings, country codes, S1 sampling)</td></tr>
+      <tr><td><code>er/retrieval.py</code>, <code>scripts/run_blocking.py</code></td><td>LSA views, FAISS (CPU/GPU), rare tokens, exact blocks, reverse check, recall report</td></tr>
+      <tr><td><code>er/features.py</code></td><td>Cheap and full pair features</td></tr>
+      <tr><td><code>er/model.py</code>, <code>er/evaluate.py</code></td><td>Grouped out-of-fold LightGBM; metric, decision rule, focus set, slices</td></tr>
+      <tr><td><code>scripts/run_stage_b.py</code></td><td>Stage B train / predict</td></tr>
+      <tr><td><code>scripts/gpu/cross_encoder.py</code>, <code>scripts/run_combine.py</code></td><td>Stage C</td></tr>
+      <tr><td><code>scripts/check_submission.py</code></td><td>Local copy of the submission rules (official validator used when present)</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<!-- ============================================================ -->
+<section id="glossary" class="stack">
+  <h2>11 · Glossary</h2>
+  <dl class="gloss">
+    <dt>Blocking</dt><dd>Cheaply picking a short candidate list per S1 so we never compare all pairs. Its recall is the ceiling for everything after it.</dd>
+    <dt>LSA vector</dt><dd>TF-IDF of character n-grams compressed to 128 numbers with truncated SVD; similar strings get similar vectors.</dd>
+    <dt>FAISS IVF</dt><dd>An index that groups vectors into cells; a search only scans the few cells nearest the query (nprobe of nlist).</dd>
+    <dt>Rare-word index</dt><dd>Word → records containing it, used only for words that appear in few records; shared rare words are strong evidence.</dd>
+    <dt>Pre-ranker</dt><dd>Fast first model that trims ~164 blocked candidates to the plausible ones.</dd>
+    <dt>Matcher</dt><dd>Main LightGBM model that outputs P(same business) for a pair.</dd>
+    <dt>Out-of-fold (OOF)</dt><dd>Scores for training S1s produced by models that did not see those S1s; used to tune thresholds and to estimate the score honestly.</dd>
+    <dt>One owner</dt><dd>No S2/S3 record belongs to two S1s, so if several S1s claim it, only the best keeps it.</dd>
+    <dt>Focus set</dt><dd>Pairs with first-stage p ≥ 0.01, top 8 per S1; the input of the final model and our candidate_pairs.tsv.</dd>
+    <dt>Cross-encoder</dt><dd>A transformer that reads both records together and scores the pair; more accurate than comparing separate vectors, but only affordable on a few pairs per S1.</dd>
+    <dt>Stacking</dt><dd>Feeding one model's score (the cross-encoder) as a feature into another (LightGBM).</dd>
+    <dt>Points lost</dt><dd>How many leaderboard points (out of 100) a slice of S1s costs: Σ(1 − F0.5) over the slice / N × 100.</dd>
+  </dl>
+</section>
+
+<footer>Prepared by Soham with Claude Code for the team. Numbers come from the Kaggle runs of 26–27 Sep 2026; re-check against the latest REPORT blocks before quoting them in the final write-up.</footer>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+<script>
+(function () {
+  try {
+    var root = document.documentElement, t = root.getAttribute("data-theme");
+    var dark = t === "dark" || (t !== "light" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+    mermaid.initialize({ startOnLoad: true, securityLevel: "strict", theme: dark ? "dark" : "neutral",
+                         flowchart: { useMaxWidth: true, htmlLabels: true } });
+  } catch (e) { /* diagram source stays readable as text */ }
+})();
+</script>
