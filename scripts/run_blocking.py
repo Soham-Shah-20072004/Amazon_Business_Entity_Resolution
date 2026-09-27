@@ -37,13 +37,14 @@ def main() -> None:
     ap.add_argument("--tag", default="b1")
     ap.add_argument("--views", nargs="+", default=list(RetrievalConfig.views))
     for f in fields(RetrievalConfig):
-        if f.init and f.name not in ("views",):
-            ap.add_argument(f"--{f.name.replace('_', '-')}", type=type(f.default), default=f.default)
+        if f.init and f.name not in ("views", "model_blockers"):
+            typ = (lambda x: str(x).lower() in ("1", "true", "yes")) if isinstance(f.default, bool) else type(f.default)
+            ap.add_argument(f"--{f.name.replace('_', '-')}", type=typ, default=f.default)
     args = ap.parse_args()
     if args.workers == RetrievalConfig.workers:
         args.workers = default_workers()
     cfg = RetrievalConfig(**{f.name: getattr(args, f.name) for f in fields(RetrievalConfig) if f.init
-                             and f.name != "views"}, views=tuple(args.views))
+                             and f.name not in ("views", "model_blockers")}, views=tuple(args.views))
 
     t = time.time()
     split = load_split(args.work, args.split, s1_sample=args.s1_sample, columns=RETRIEVAL_COLUMNS)

@@ -158,6 +158,9 @@ def main() -> None:
     ap.add_argument("--top-k", type=int, default=8, help="focus set: max pairs per S1")
     ap.add_argument("--limit-train", type=int, default=None, help="smoke test: use N train pairs")
     ap.add_argument("--limit-test", type=int, default=None, help="smoke test: score N test pairs")
+    ap.add_argument("--reuse-dir", default=None,
+                    help="earlier ce_out/: keep its scores, score only pairs it does not cover. If every "
+                         "train pair is covered, one model is fine-tuned on all train pairs (no OOF needed)")
     args = ap.parse_args()
 
     import torch
@@ -181,15 +184,38 @@ def main() -> None:
     log(f"test focus set: {len(te):,} of {n_te:,} pairs")
     if args.limit_test:
         te = te.head(args.limit_test)
+    te_known = pd.DataFrame(columns=["i", "j", "ce"])
+    train_known = None
+    if args.reuse_dir:
+        old_te = pd.read_parquet(Path(args.reuse_dir) / "ce_test.parquet")
+        m = te.merge(old_te, on=["i", "j"], how="left")
+        known = m["ce"].notna().to_numpy()
+        te_known = m.loc[known, ["i", "j", "ce"]]
+        te = te[~known].reset_index(drop=True)
+        old_tr = pd.read_parquet(Path(args.reuse_dir) / "ce_train.parquet")
+        mt = tr.merge(old_tr, on=["i", "j"], how="left")
+        if mt["ce"].notna().all():
+            train_known = mt["ce"].to_numpy(np.float32)
+        log(f"reuse: {known.sum():,} test pairs already scored, {len(te):,} new; train scores "
+            f"{'reused' if train_known is not None else 'recomputed (pairs differ)'}")
     log(f"train pairs {len(tr):,} (positives {tr['label'].mean():.1%}), test pairs {len(te):,}")
     ta, tb = pair_texts(args.train_records, tr["i"].to_numpy(), tr["j"].to_numpy())
-    ea, eb = pair_texts(args.test_records, te["i"].to_numpy(), te["j"].to_numpy())
+    ea, eb = (pair_texts(args.test_records, te["i"].to_numpy(), te["j"].to_numpy()) if len(te)
+              else (np.array([], dtype=object), np.array([], dtype=object)))
     log(f"texts ready, e.g. A='{ta[0]}'  B='{tb[0]}'")
 
     y = tr["label"].to_numpy().astype(np.float32)
     fold = fold_of(tr["i"].to_numpy(), args.folds)
     oof = np.zeros(len(tr), np.float32)
     test_score = np.zeros(len(te), np.float32)
+    if train_known is not None:          # scores for train pairs exist: one model on all of them
+        oof = train_known
+        log(f"fine-tuning one model on all {len(tr):,} train pairs to score the {len(te):,} new test pairs")
+        m = Scorer(args.model, args.max_len, device)
+        m.train(ta, tb, y, args.epochs, args.bs, args.lr, seed=0)
+        if len(te):
+            test_score = m.predict(ea, eb, args.infer_bs)
+        args.folds = 0
     for k in range(args.folds):
         fit, val = fold != k, fold == k
         log(f"fold {k}: fine-tuning on {fit.sum():,} pairs, scoring {val.sum():,} held-out pairs")
@@ -198,13 +224,16 @@ def main() -> None:
         oof[val] = m.predict(ta[val], tb[val], args.infer_bs)
         auc = _auc(y[val], oof[val])
         log(f"fold {k}: held-out AUC {auc:.4f}, accuracy@0.5 {((oof[val] > 0.5) == (y[val] > 0.5)).mean():.4f}")
-        test_score += m.predict(ea, eb, args.infer_bs) / args.folds
+        if len(te):
+            test_score += m.predict(ea, eb, args.infer_bs) / args.folds
         del m
         torch.cuda.empty_cache()
 
     pd.DataFrame({"i": tr["i"], "j": tr["j"], "ce": oof}).to_parquet(out / "ce_train.parquet", index=False)
-    pd.DataFrame({"i": te["i"], "j": te["j"], "ce": test_score}).to_parquet(out / "ce_test.parquet", index=False)
-    summary = {"model": args.model, "train_pairs": len(tr), "test_pairs": len(te),
+    new_te = pd.DataFrame({"i": te["i"], "j": te["j"], "ce": test_score})
+    all_te = pd.concat([te_known.astype(new_te.dtypes.to_dict()), new_te], ignore_index=True) if len(te_known) else new_te
+    all_te.to_parquet(out / "ce_test.parquet", index=False)
+    summary = {"model": args.model, "train_pairs": len(tr), "test_pairs": len(all_te), "test_pairs_scored_now": len(te),
                "oof_auc": _auc(y, oof), "minutes": round((time.time() - T0) / 60, 1)}
     (out / "ce_summary.json").write_text(json.dumps(summary, indent=2))
     print("\n===== CROSS-ENCODER SUMMARY (paste this) =====")

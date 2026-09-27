@@ -61,10 +61,14 @@ class RetrievalConfig:
     workers: int = 8
     seed: int = 42
     scratch: str = "/tmp/ber_scratch"   # on-disk (memory-mapped) vectors live here
+    exact_gpu: bool = True     # on GPU: exact (brute-force) search instead of approximate IVF
+    reverse_pool: bool = False  # blocker "rev": every pool record proposes its 2 nearest S1s
+    model_blockers: tuple[str, ...] = ()   # blockers the saved models were trained with (n_blockers)
     blockers: tuple[str, ...] = field(init=False)
 
     def __post_init__(self):
-        self.blockers = tuple(f"ann_{v}" for v in self.views) + ("rare", "exact")
+        self.blockers = (tuple(f"ann_{v}" for v in self.views) + ("rare", "exact")
+                         + (("rev",) if self.reverse_pool else ()))
 
 
 # ---------------------------------------------------------------- LSA views
@@ -343,7 +347,7 @@ def search(split: Split, res: Resources, cfg: RetrievalConfig, queries: np.ndarr
                 continue
             t = time.time()
             for v in cfg.views:
-                index = ann_index(f32(res.Z[v], p), cfg.nprobe, cfg.seed)
+                index = ann_index(f32(res.Z[v], p), cfg.nprobe, cfg.seed, cfg.exact_gpu)
                 k = min(cfg.k_ann, len(p))
                 for s in range(0, len(q), chunk):
                     qs = q[s:s + chunk]
@@ -367,12 +371,23 @@ def n_gpus() -> int:
     return faiss.get_num_gpus() if hasattr(faiss, "get_num_gpus") else 0
 
 
-def ann_index(Zp: np.ndarray, nprobe: int, seed: int):
+def ann_index(Zp: np.ndarray, nprobe: int, seed: int, exact: bool = False):
     """IVF index (exact flat index for small pools). Uses every GPU when the
     faiss-gpu build is installed and a GPU is present - the IVF scan is the
-    slowest step on CPU (~20-28 min per country/source for 1.7M test S1s)."""
+    slowest step on CPU (~20-28 min per country/source for 1.7M test S1s).
+    exact=True on a GPU: brute-force search over the whole pool (float16
+    storage), i.e. the true top-k; IVF only looks at ~1% of the index."""
     n, d = Zp.shape
     gpu = n_gpus() > 0
+    if gpu and exact:
+        try:
+            co = faiss.GpuMultipleClonerOptions()
+            co.useFloat16 = True
+            index = faiss.index_cpu_to_all_gpus(faiss.IndexFlatIP(d), co)
+            index.add(Zp)
+            return index
+        except Exception as e:      # noqa: BLE001 - fall back to IVF rather than stop a long run
+            print(f"    exact GPU search unavailable ({e}); using IVF", flush=True)
     ivf = n > 20_000
     if ivf:
         index = faiss.IndexIVFFlat(faiss.IndexFlatIP(d), d, _nlist(n), faiss.METRIC_INNER_PRODUCT)
@@ -432,7 +447,10 @@ def assemble(split: Split, res: Resources, cfg: RetrievalConfig, found: dict,
         flag = np.zeros(len(keys), np.int8)
         flag[np.searchsorted(keys, keys_b[b])] = 1
         cand[f"blk_{b}"] = flag
-    cand["n_blockers"] = cand[[f"blk_{b}" for b in cfg.blockers]].sum(axis=1).astype(np.int8)
+    # n_blockers keeps the meaning the models were trained with: new blockers (rev, extra
+    # views added at predict time) get their own flag columns but do not change this count
+    counted = [b for b in (cfg.model_blockers or cfg.blockers) if b != "rev" and b in cfg.blockers]
+    cand["n_blockers"] = cand[[f"blk_{b}" for b in counted]].sum(axis=1).astype(np.int8)
     ii, jj = cand["i"].to_numpy(), cand["j"].to_numpy()
     cand["src"] = res.src[jj]
     for v in cfg.views:
@@ -462,7 +480,7 @@ def reverse_best(split: Split, res: Resources, cfg: RetrievalConfig, cand_j: np.
         sel = np.flatnonzero(res.country[js] == c)
         if len(s1c) == 0 or len(sel) == 0:
             continue
-        index = ann_index(f32(res.Z[view], s1c), cfg.nprobe, cfg.seed)
+        index = ann_index(f32(res.Z[view], s1c), cfg.nprobe, cfg.seed, cfg.exact_gpu)
         kk = min(k, len(s1c))
         for s in range(0, len(sel), 500_000):
             part = sel[s:s + 500_000]
@@ -473,6 +491,19 @@ def reverse_best(split: Split, res: Resources, cfg: RetrievalConfig, cand_j: np.
     return pd.DataFrame({"j": js, "rev_i1": best_i[:, 0], "rev_s1": best_s[:, 0],
                          "rev_s2": best_s[:, 1] if k > 1 else 0.0,
                          "rev_i2": best_i[:, 1] if k > 1 else -1})
+
+
+def reverse_pairs(rev: pd.DataFrame, queries: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Blocker "rev": (S1, record) for the record's 2 nearest S1s, when that S1 is
+    a query. Catches matches that fall outside a crowded S1's own top-k lists."""
+    qs = np.sort(queries)
+    ii, jj = [], []
+    for c in ("rev_i1", "rev_i2"):
+        i = rev[c].to_numpy()
+        ok = (i >= 0) & _in_sorted(qs, i)
+        ii.append(i[ok])
+        jj.append(rev["j"].to_numpy()[ok])
+    return np.concatenate(ii).astype(np.int32), np.concatenate(jj).astype(np.int32)
 
 
 def generate_candidates(split: Split, cfg: RetrievalConfig, log=print) -> pd.DataFrame:
@@ -513,7 +544,7 @@ def blocking_report(split: Split, cand: pd.DataFrame, cfg: RetrievalConfig) -> d
     tc = split.rec["country_code"].to_numpy()[split.truth["i"].to_numpy()]
     for c in np.unique(tc):
         rep[f"recall_{split.countries[c]}"] = float(hit[tc == c].mean())
-    nb = cand["n_blockers"].to_numpy()
+    nb = cand[[f"blk_{b}" for b in cfg.blockers]].sum(axis=1).to_numpy()
     for b in cfg.blockers:
         f = cand[f"blk_{b}"].to_numpy() == 1
         rep[f"recall_{b}"] = float(_in_sorted(ck[f], tk).mean())

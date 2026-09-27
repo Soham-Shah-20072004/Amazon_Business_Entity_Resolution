@@ -34,7 +34,7 @@ from business_entity_resolution.er.features import (  # noqa: E402
     MATCH_COLUMNS, cheap_columns, cheap_features, feature_columns, full_features)
 from business_entity_resolution.er.prepare import default_workers  # noqa: E402
 from business_entity_resolution.er.retrieval import (  # noqa: E402
-    RetrievalConfig, assemble, build_resources, reverse_best, search)
+    RetrievalConfig, assemble, build_resources, reverse_best, reverse_pairs, search)
 
 T0 = time.time()
 
@@ -67,11 +67,17 @@ def retrieve(args, cfg, split_name, s1_sample):
                        columns=RETRIEVAL_COLUMNS + MATCH_COLUMNS)
     log(f"{split_name}: {len(split.rec):,} records, {len(split.query):,} S1 queries")
     res = build_resources(split, cfg, log)
-    found = sort_found(search(split, res, cfg, split.query, log))
+    found = search(split, res, cfg, split.query, log)
     all_j = np.unique(np.concatenate([j for _, j in found.values()]))
+    if cfg.reverse_pool:        # every pool record of the query countries looks for its nearest S1s
+        pool = np.flatnonzero((res.src != 1) & np.isin(res.country, np.unique(res.country[split.query])))
+        all_j = np.union1d(all_j, pool)
     rev = reverse_best(split, res, cfg, all_j)
-    log(f"reverse check done for {len(all_j):,} candidate records")
-    return split, res, found, rev
+    log(f"reverse check done for {len(all_j):,} records")
+    if cfg.reverse_pool:
+        found["rev"] = reverse_pairs(rev, split.query)
+        log(f"reverse blocker: {len(found['rev'][0]):,} (S1, record) proposals")
+    return split, res, sort_found(found), rev
 
 
 def prerank_keep(df: pd.DataFrame, t_pre: float, k_pre: int) -> np.ndarray:
@@ -210,7 +216,13 @@ def cmd_predict(args, cfg) -> None:
     meta = json.loads((mdir / "meta.json").read_text())
     cfg = RetrievalConfig(**{k: v for k, v in meta["retrieval"].items()
                              if k in {f.name for f in fields(RetrievalConfig) if f.init}}
-                          | {"workers": cfg.workers, "scratch": cfg.scratch})
+                          | {"workers": cfg.workers, "scratch": cfg.scratch,
+                             "exact_gpu": cfg.exact_gpu, "reverse_pool": cfg.reverse_pool,
+                             "views": tuple(meta["retrieval"]["views"]) + tuple(
+                                 v for v in args.extra_views if v not in meta["retrieval"]["views"]),
+                             "model_blockers": tuple(meta["retrieval"]["blockers"])})
+    log(f"predict with {args.tag} models; retrieval: exact_gpu={cfg.exact_gpu}, reverse_pool={cfg.reverse_pool}, "
+        f"blockers={cfg.blockers}")
     import lightgbm as lgb
     pre_model = lgb.Booster(model_file=str(mdir / "prerank.txt"))
     match_model = lgb.Booster(model_file=str(mdir / "matcher.txt"))
@@ -286,14 +298,17 @@ def main() -> None:
     ap.add_argument("--pre-neg-frac", type=float, default=0.3)
     ap.add_argument("--max-prerank-loss", type=float, default=0.005)
     ap.add_argument("--views", nargs="+", default=list(RetrievalConfig.views))
+    ap.add_argument("--extra-views", nargs="*", default=[],
+                    help="predict only: search views added on top of the saved models' views (e.g. name)")
     for f in fields(RetrievalConfig):
-        if f.init and f.name != "views":
-            ap.add_argument(f"--{f.name.replace('_', '-')}", type=type(f.default), default=f.default)
+        if f.init and f.name not in ("views", "model_blockers"):
+            typ = (lambda x: str(x).lower() in ("1", "true", "yes")) if isinstance(f.default, bool) else type(f.default)
+            ap.add_argument(f"--{f.name.replace('_', '-')}", type=typ, default=f.default)
     args = ap.parse_args()
     if args.workers == RetrievalConfig.workers:
         args.workers = default_workers()
     cfg = RetrievalConfig(**{f.name: getattr(args, f.name) for f in fields(RetrievalConfig)
-                             if f.init and f.name != "views"}, views=tuple(args.views))
+                             if f.init and f.name not in ("views", "model_blockers")}, views=tuple(args.views))
     (cmd_train if args.mode == "train" else cmd_predict)(args, cfg)
 
 
