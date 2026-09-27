@@ -32,4 +32,20 @@ fi
 Q=$(find -L /kaggle/input -path "*models/m1/queries.npy" 2>/dev/null | first_existing || true)
 [ -n "$Q" ] || { echo "attach the Stage B notebook (work/models/m1)"; exit 1; }
 python scripts/gpu/biencoder.py --work "$W" --holdout-queries "$Q" \
-  --baseline-pairs "$(dirname "$Q")/train_pairs.parquet" --out /kaggle/working/bienc_out
+  --baseline-pairs "$(dirname "$Q")/train_pairs.parquet" --out /kaggle/working/bienc_out \
+  --max-pairs "${MAX_PAIRS:-400000}" --max-len "${MAX_LEN:-48}"
+
+# merge right here (needs the stagec-gpu notebook attached for its ce_out/): the stacked result of
+# submission #2 (m1 + cross-encoder) + the bi-encoder's extra candidates -> output_merged/*.tsv
+CE=$(find -L /kaggle/input -name ce_train.parquet 2>/dev/null | first_existing || true)
+TEST_DIR=$(dirname "$(find -L /kaggle/input -name test_source1.tsv 2>/dev/null | head -1)")
+if [ -n "$CE" ] && [ "${MERGE:-1}" = "1" ]; then
+  echo "merging with cross-encoder scores from $(dirname "$CE")"
+  python scripts/run_combine.py --pairs-dir "$(dirname "$Q")" --extra-train "$CE" \
+    --extra-test "$(dirname "$CE")/ce_test.parquet" --train-records "$W/train/records.parquet" \
+    --test-records "$W/test/records.parquet" --out /kaggle/working/output_stack --no-ablate
+  python scripts/merge_bienc.py --work "$W" --stack-dir /kaggle/working/output_stack --pairs-dir "$(dirname "$Q")" \
+    --bienc-dir /kaggle/working/bienc_out --test-dir "$TEST_DIR" --out /kaggle/working/output_merged
+else
+  echo "no ce_train.parquet attached (stagec-gpu): merge skipped"
+fi
