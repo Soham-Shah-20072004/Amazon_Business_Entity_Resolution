@@ -5,6 +5,7 @@
 #   bash ber/scripts/kaggle/cpu_combine.sh            # diagnosis, then combine -> output/*.tsv
 #   DIAG_ONLY=1 bash ber/scripts/kaggle/cpu_combine.sh   # diagnosis only (~5 min)
 #   SKIP_DIAG=1 bash ber/scripts/kaggle/cpu_combine.sh   # combine only
+#   INSPECT=1 bash ber/scripts/kaggle/cpu_combine.sh     # per-country test inspection only (~5 min)
 #   ABLATE=0 ...  # train only the full stacked model, not the 2 comparison variants (~6 min less)
 # Without a cross-encoder input, combine still adds sibling features + the per-S1 decision rule.
 set -euo pipefail
@@ -24,6 +25,11 @@ for v in PAIRS TRAIN_REC TEST_REC; do
 done
 PDIR=$(dirname "$PAIRS")
 
+if [ "${INSPECT:-0}" = "1" ]; then
+  python scripts/inspect_country.py --pairs-dir "$PDIR" --test-records "$TEST_REC" \
+    --country "${COUNTRY:-France}" --out /kaggle/working/inspect
+  exit 0
+fi
 if [ "${SKIP_DIAG:-0}" != "1" ]; then
   python scripts/diagnose.py --pairs-dir "$PDIR" --train-records "$TRAIN_REC" --out /kaggle/working/diag
 fi
