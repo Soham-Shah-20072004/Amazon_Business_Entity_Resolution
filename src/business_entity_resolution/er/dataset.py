@@ -64,3 +64,21 @@ def load_split(work: str | Path, split: str, s1_sample: float | int | None = Non
         truth = pd.DataFrame({"i": i[~bad], "j": j[~bad]}).astype(np.int64)
         truth = truth[np.isin(truth["i"].to_numpy(), s1)].reset_index(drop=True)
     return Split(split, rec, s1, truth, [str(x) for x in names])
+
+
+def take_rows(records: str | Path, rows: np.ndarray, columns: list[str]) -> pd.DataFrame:
+    """Columns of records.parquet for the given row numbers only (one column in
+    memory at a time), indexed by row number. Used by the cached stages, which
+    need text for a few million rows out of ~12M."""
+    import pyarrow as pa
+    import pyarrow.compute as pc
+    import pyarrow.parquet as pq
+    rows = np.unique(np.asarray(rows, dtype=np.int64))
+    pf = pq.ParquetFile(records)
+    out = {}
+    for c in columns:
+        col = pf.read(columns=[c]).column(0).take(rows)
+        if pa.types.is_string(col.type) or pa.types.is_large_string(col.type):
+            col = pc.fill_null(col, "")
+        out[c] = col.to_numpy(zero_copy_only=False)
+    return pd.DataFrame(out, index=rows)

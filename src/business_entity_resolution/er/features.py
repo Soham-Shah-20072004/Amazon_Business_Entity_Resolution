@@ -217,3 +217,55 @@ META = ("i", "j", "label", "pre_p", "p", "fold")
 
 def feature_columns(df: pd.DataFrame) -> list[str]:
     return [c for c in df.columns if c not in META]
+
+
+# ---------------------------------------------------------------- siblings
+
+SIB_TEXT = ["name_canon", "addr_canon", "name_skel", "addr_skel"]
+
+
+def sibling_features(df: pd.DataFrame, text: pd.DataFrame, prob: str = "p", top: int = 3) -> pd.DataFrame:
+    """Collective evidence for multi-match S1s: how much does candidate j look like
+    the S1's other strongest candidates? Matched records of one business often
+    resemble each other more than they resemble the S1 itself.
+
+    For each pair, the `top` highest-p other candidates of the same S1 (by the
+    first-stage p) are compared with j. Features: p and similarities of the
+    strongest sibling, the p-weighted best similarity over the top siblings, and
+    how many other candidates are confident (p >= 0.5). `text` holds SIB_TEXT
+    columns indexed by row number (dataset.take_rows)."""
+    n = len(df)
+    i, j = df["i"].to_numpy(), df["j"].to_numpy()
+    p = df[prob].to_numpy().astype(np.float32)
+    o = np.lexsort((-p, i))
+    i_s = i[o]
+    new = np.r_[True, i_s[1:] != i_s[:-1]]
+    starts, g = np.flatnonzero(new), np.cumsum(new) - 1
+    size = np.diff(np.r_[starts, n])[g]
+    pos = np.arange(n) - starts[g]                           # rank of the pair in its S1 list
+    # partner r (r = 0..top-1) = r-th best candidate of the same S1, skipping the pair itself
+    rows = np.searchsorted(text.index.to_numpy(), j)
+    name = text["name_canon"].to_numpy()[rows]
+    addr = text["addr_canon"].to_numpy()[rows]
+    skel = (text["name_skel"].to_numpy()[rows] + " " + text["addr_skel"].to_numpy()[rows])
+    conf = (p[o] >= 0.5).astype(np.int32)
+    n_conf = np.add.reduceat(conf, starts)[g] - conf
+    out = {c: np.zeros(n, np.float32) for c in
+           ("sib1_p", "sib1_name", "sib1_addr", "sib1_skel", "sib_w_name", "sib_w_addr", "sib_w_skel")}
+    for r in range(top):
+        k = r + (pos <= r)                                    # skip self
+        ok = k < size
+        a, b = o[ok], o[starts[g[ok]] + k[ok]]                # pair rows (original order) and partner rows
+        sims = {"name": _cp(name[a].tolist(), name[b].tolist(), fuzz.token_set_ratio),
+                "addr": _cp(addr[a].tolist(), addr[b].tolist(), fuzz.token_set_ratio),
+                "skel": _cp(skel[a].tolist(), skel[b].tolist(), fuzz.token_set_ratio)}
+        pb = p[b]
+        if r == 0:
+            out["sib1_p"][a] = pb
+            for f, v in sims.items():
+                out[f"sib1_{f}"][a] = v
+        for f, v in sims.items():
+            out[f"sib_w_{f}"][a] = np.maximum(out[f"sib_w_{f}"][a], pb * v)
+    out["sib_n_conf"] = np.empty(n, np.float32)
+    out["sib_n_conf"][o] = n_conf
+    return pd.DataFrame(out, index=df.index)

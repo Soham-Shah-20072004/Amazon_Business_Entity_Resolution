@@ -32,5 +32,5 @@ fi
 python scripts/gpu/cross_encoder.py --pairs-dir "$PDIR" --train-records "$TRAIN_REC" \
   --test-records "$TEST_REC" --out /kaggle/working/ce_out $CE_ARGS
 python scripts/run_combine.py --pairs-dir "$PDIR" --extra-train /kaggle/working/ce_out/ce_train.parquet \
-  --extra-test /kaggle/working/ce_out/ce_test.parquet --test-records "$TEST_REC" \
+  --extra-test /kaggle/working/ce_out/ce_test.parquet --train-records "$TRAIN_REC" --test-records "$TEST_REC" \
   --test-dir "$TEST_DIR" --out /kaggle/working/output

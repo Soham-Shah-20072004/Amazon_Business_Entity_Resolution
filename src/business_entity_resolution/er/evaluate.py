@@ -65,6 +65,63 @@ def decide(df: pd.DataFrame, t2: float, t3: float | None = None, one_owner: bool
     return keep
 
 
+def owner_mask(df: pd.DataFrame, p: np.ndarray) -> np.ndarray:
+    """True where this S1 is the highest-probability claimant of the record j."""
+    best = pd.Series(p).groupby(df["j"].to_numpy()).transform("max").to_numpy()
+    return p >= best
+
+
+def decide_expected(df: pd.DataFrame, lam: float = 0.2, power: float = 1.0, one_owner: bool = True,
+                    prob: str = "p") -> np.ndarray:
+    """Per-S1 decision instead of one global threshold: sort the S1's candidates by
+    p and keep the top k that maximise its expected F0.5,
+        E[F0.5 | top k] ~ 1.25 * sum(p_1..p_k) / (0.25 * (sum(all p) + lam) + k),
+    or keep nothing when P(no true match) = prod(1 - p) * exp(-lam) is higher.
+    lam = expected true matches the candidate list does not contain (blocking
+    misses); power recalibrates p (p ** power). Both are tuned on OOF scores."""
+    p = np.clip(df[prob].to_numpy().astype(np.float64) ** power, 0.0, 1 - 1e-9)
+    idx = np.flatnonzero(owner_mask(df, p)) if one_owner else np.arange(len(df))
+    keep = np.zeros(len(df), bool)
+    if len(idx) == 0:
+        return keep
+    i, q = df["i"].to_numpy()[idx], p[idx]
+    o = np.lexsort((-q, i))
+    i_s, q_s = i[o], q[o]
+    new = np.r_[True, i_s[1:] != i_s[:-1]]
+    starts, g = np.flatnonzero(new), np.cumsum(new) - 1
+    k = np.arange(len(q_s)) - starts[g] + 1
+    cs = np.cumsum(q_s)
+    top_sum = cs - (cs - q_s)[starts][g]
+    total = np.add.reduceat(q_s, starts)[g]
+    ef = 1.25 * top_sum / (0.25 * (total + lam) + k)
+    ef_empty = np.exp(np.add.reduceat(np.log1p(-q_s), starts) - lam)
+    best = np.maximum.reduceat(ef, starts)
+    k_best = np.minimum.reduceat(np.where(ef >= best[g], k, np.iinfo(np.int64).max), starts)
+    take = (best[g] > ef_empty[g]) & (k <= k_best[g])
+    keep[idx[o[take]]] = True
+    return keep
+
+
+def tune_expected(df: pd.DataFrame, queries, ti, tj, n, prob="p",
+                  lams=(0.0, 0.1, 0.2, 0.35, 0.5, 0.75, 1.0), powers=(0.8, 1.0, 1.25, 1.5)) -> pd.DataFrame:
+    rows = []
+    i, j = df["i"].to_numpy(), df["j"].to_numpy()
+    for one_owner in (False, True):
+        for lam in lams:
+            for pw in powers:
+                k = decide_expected(df, lam, pw, one_owner, prob)
+                rows.append({"lam": lam, "power": pw, "one_owner": one_owner,
+                             "macro_f05": per_entity_f05(queries, ti, tj, i[k], j[k], n).mean()})
+    return pd.DataFrame(rows).sort_values("macro_f05", ascending=False).reset_index(drop=True)
+
+
+def apply_rule(df: pd.DataFrame, rule: dict, prob: str) -> np.ndarray:
+    """rule from tune() (t2, t3, one_owner) or tune_expected() (lam, power, one_owner)."""
+    if "lam" in rule:
+        return decide_expected(df, rule["lam"], rule["power"], bool(rule["one_owner"]), prob)
+    return decide(df, rule["t2"], rule["t3"], bool(rule["one_owner"]), prob)
+
+
 def tune(df: pd.DataFrame, queries, ti, tj, n, per_source=False, prob="p",
          grid=None) -> pd.DataFrame:
     grid = np.round(np.arange(0.05, 0.96, 0.025), 3) if grid is None else grid
