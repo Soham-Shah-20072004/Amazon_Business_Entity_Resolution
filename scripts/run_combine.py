@@ -77,6 +77,8 @@ def main() -> None:
     ap.add_argument("--train-records", default=None, help="train records.parquet: enables sibling features")
     ap.add_argument("--test-records", required=True)
     ap.add_argument("--no-siblings", action="store_true")
+    ap.add_argument("--no-ablate", action="store_true",
+                    help="train only the full stacked model (skip the without-siblings / without-extra comparison)")
     ap.add_argument("--test-dir", default=None, help="raw test TSVs, for the submission check")
     ap.add_argument("--out", default=str(ROOT / "output"))
     ap.add_argument("--per-source", action="store_true", help="tune separate S2 / S3 thresholds")
@@ -113,7 +115,7 @@ def main() -> None:
     # stacked matcher variants, all scored out-of-fold on the same S1s
     base_cols = meta["full_columns"]
     variants = {"all": base_cols + new_cols + sib_cols}
-    if new_cols and sib_cols:
+    if new_cols and sib_cols and not args.no_ablate:
         variants["no_siblings"] = base_cols + new_cols
         variants["no_extra"] = base_cols + sib_cols
     results = {}

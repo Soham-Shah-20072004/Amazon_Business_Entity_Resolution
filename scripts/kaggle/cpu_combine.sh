@@ -3,7 +3,9 @@
 # Inputs to attach: your dataset, the Stage A notebook (prepared records), the Stage B
 # notebook (models/<tag>/...) and, if it has finished, the GPU cross-encoder notebook (ce_out/).
 #   bash ber/scripts/kaggle/cpu_combine.sh            # diagnosis, then combine -> output/*.tsv
-#   DIAG_ONLY=1 bash ber/scripts/kaggle/cpu_combine.sh
+#   DIAG_ONLY=1 bash ber/scripts/kaggle/cpu_combine.sh   # diagnosis only (~5 min)
+#   SKIP_DIAG=1 bash ber/scripts/kaggle/cpu_combine.sh   # combine only
+#   ABLATE=0 ...  # train only the full stacked model, not the 2 comparison variants (~6 min less)
 # Without a cross-encoder input, combine still adds sibling features + the per-S1 decision rule.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
@@ -22,10 +24,13 @@ for v in PAIRS TRAIN_REC TEST_REC; do
 done
 PDIR=$(dirname "$PAIRS")
 
-python scripts/diagnose.py --pairs-dir "$PDIR" --train-records "$TRAIN_REC" --out /kaggle/working/diag
+if [ "${SKIP_DIAG:-0}" != "1" ]; then
+  python scripts/diagnose.py --pairs-dir "$PDIR" --train-records "$TRAIN_REC" --out /kaggle/working/diag
+fi
 [ "${DIAG_ONLY:-0}" = "1" ] && exit 0
 
 EXTRA=()
+[ "${ABLATE:-1}" = "0" ] && EXTRA+=(--no-ablate)
 if [ -n "$CE_TRAIN" ]; then
   echo "CE_TRAIN: $CE_TRAIN"
   EXTRA=(--extra-train "$CE_TRAIN" --extra-test "$(dirname "$CE_TRAIN")/ce_test.parquet")
