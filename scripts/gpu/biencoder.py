@@ -33,7 +33,7 @@ import numpy as np
 import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "src"))
+sys.path.insert(0, str(ROOT / "src" if (ROOT / "src").is_dir() else ROOT))  # repo or submission layout
 
 from business_entity_resolution.er.dataset import load_split  # noqa: E402
 

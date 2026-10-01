@@ -12,7 +12,7 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "src"))
+sys.path.insert(0, str(ROOT / "src" if (ROOT / "src").is_dir() else ROOT))  # repo or submission layout
 
 from business_entity_resolution.er.prepare import default_workers, prepare_split  # noqa: E402
 

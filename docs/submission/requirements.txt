@@ -1,0 +1,14 @@
+# Pinned versions used to produce the submission (Python 3.10-3.12).
+numpy==1.26.4
+pandas==2.2.2
+pyarrow==17.0.0
+scipy==1.13.1
+scikit-learn==1.5.1
+rapidfuzz==3.9.1
+Unidecode==1.3.8
+lightgbm==4.5.0
+polars==1.9.0
+faiss-cpu==1.8.0.post1          # GPU machines: replace with faiss-gpu-cu12 (exact GPU search)
+# cross-encoder (GPU step)
+torch==2.4.1
+transformers==4.44.2

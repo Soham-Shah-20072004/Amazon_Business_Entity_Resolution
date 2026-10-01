@@ -29,7 +29,7 @@ import pandas as pd
 from rapidfuzz import fuzz, process
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "src"))
+sys.path.insert(0, str(ROOT / "src" if (ROOT / "src").is_dir() else ROOT))  # repo or submission layout
 
 from business_entity_resolution.er import evaluate as E  # noqa: E402
 from business_entity_resolution.er.dataset import take_rows  # noqa: E402
